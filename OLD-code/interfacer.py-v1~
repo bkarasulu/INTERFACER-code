@@ -1,0 +1,1208 @@
+#!/usr/bin/env python
+import numpy as np
+import argparse
+import ase.io
+import ase
+from ase.visualize import view
+from os import system,popen,chdir
+from re import search
+from sys import exit
+from ase.build import *
+from ase import Atoms
+import fractions
+import ase.build
+import copy
+import time
+import ase.build.tools
+import matplotlib.pyplot as plt
+import ase.calculators.castep
+from spglib import find_primitive,standardize_cell,get_spacegroup #niggli_reduce from ASE-tools clashes with that from spglib.
+
+from ase.spacegroup import crystal
+
+
+"""LAST EDIT: jpd47 16/04/2017"""
+
+def calc_R1(x1,y1):
+        #gives a rotation matrix that will rotate x1 onto y1
+        Id = np.array([[1,0,0],[0,1,0],[0,0,1]])
+       	u = np.cross(x1,y1)
+	
+        tol = 0.001
+        if np.linalg.norm(u) < tol:
+                return Id
+
+        sin_th = np.linalg.norm(u)/(np.linalg.norm(x1)*np.linalg.norm(y1))
+        cos_th = np.dot(x1,y1)/(np.linalg.norm(x1)*np.linalg.norm(y1))
+        u = u/np.linalg.norm(u)
+
+        #use wiki formula for R1
+        ux = np.array([[0,-u[2],u[1]],[u[2],0,-u[0]],[-u[1],u[0],0]])
+        ut = np.tensordot(u,u,axes=0)
+        R1 = cos_th*Id + sin_th*ux + (1-cos_th)*ut
+        return(R1)
+
+def align_axes(a,b,c,d,e):
+	#f given in fractional coordinates of a,b,c
+	d2 = d[0]*a + d[1]*b + d[2]*c
+	e2 = e[0]*a + e[1]*b + d[2]*c
+	R1 = calc_R1(np.cross(d2,e2),[0,0,1])
+	
+	ra = np.dot(R1,a)
+	rb = np.dot(R1,b)
+	rc = np.dot(R1,c)
+	return ra, rb, rc
+
+def rotate_slab(slab):
+	d = slab.cell[0]
+	e = slab.cell[1]
+	f = slab.cell[2]
+	frac_pos = slab.get_scaled_positions()
+	R1 = calc_R1(np.cross(d,e),[0,0,1])
+	
+	slab.cell[0] = np.dot(R1,d)
+	slab.cell[1] = np.dot(R1,e)
+	slab.cell[2] = np.dot(R1,f)
+	slab.set_scaled_positions(frac_pos)
+	return slab
+
+def lcm(a,b):
+	return (a*b)//fractions.gcd(a,b)
+
+def get_cut_vectors(miller, atoms_cell):
+	#from miller indicies construct 2 lattice vectors in the required plane
+	h,k,l = miller
+	a = atoms_cell[0]
+	b = atoms_cell[1]
+	c = atoms_cell[2]
+	zero_inds = np.argwhere(np.array(miller)==0)
+	
+	#no zero miler indicies
+	if len(zero_inds) == 0:
+		lm = lcm(h,l);	d = (lm/h,0,-lm/l)	#vector from c intersection to a
+		lm = lcm(k,l);	e = (0,lm/k,-lm/l) 	#vector from c` intersection to b
+		#pick f so that cell is left handed
+		f = (0,0,1)
+		origin = c*1.0/l
+	
+	elif len(zero_inds)==3:
+		print("miller not a valid plane")
+		raise ValueError
+
+	#one zero milller index
+	elif len(zero_inds)==1:
+		cell = [[miller[i],x,i] for i,x in enumerate(atoms_cell)]
+		d_cell = cell.pop(zero_inds[0]);
+		d = [0,0,0]
+		d[d_cell[2]] = 1	
+		
+		lm = lcm(cell[0][0],cell[1][0])
+		e = [0,0,0]
+		e[cell[0][2]] = -lm/cell[0][0]
+		e[cell[1][2]] = lm/cell[1][0]
+		f = [0,0,0];	f[cell[1][2]] = 1
+		origin = lm*cell[0][1]
+		#exit()
+		
+	
+
+	#two zero miller indicies
+	elif len(zero_inds)==2:
+		d = [0,0,0]
+		#print zero_inds
+		d[zero_inds[0][0]] = 1
+		e = [0,0,0]
+		e[zero_inds[1][0]] = 1
+		f_ind = np.argwhere(np.array(miller)!=0)[0][0]
+		f = [0,0,0]
+		f[f_ind] = 1
+		origin = atoms_cell[f_ind]*1.0/miller[f_ind]	
+		#print d,e,f
+		#print origin
+	#ensure that slab is always left handed	
+	if np.dot(np.cross(d,e),f) < 0:
+		f = -np.array(f)
+	return d,e,f,origin
+
+def wrap_coords(slab):
+	sp = slab.get_scaled_positions()
+	sp %= 1.0
+	slab.set_scaled_positions(sp)
+	return slab
+
+def make_slab(miller, atoms,repeat=(1,1,1),square=False):
+	#construct slab
+	d,e,f,origin = get_cut_vectors(miller, atoms.cell)
+	atoms = wrap_coords(atoms)
+	#slab = ase.build.cut(atoms, d, e, f, origo=origin)
+	slab = cut_cell(atoms, d, e, f, origin=origin)
+	slab = slab.repeat(repeat)
+	slab = rotate_slab(slab)
+	slab = AG_slab(slab)
+	
+	if square:
+		slab = square_slab(slab)
+	#gives the slabs a consistent handedness
+	#swaps a1,a2 after AG if necessary
+	#maintains a3.(0,0,1) > 0
+	if np.dot(slab.cell[2],np.cross(slab.cell[0],slab.cell[1])) < 0:
+		slab = flip_handedness(slab)
+	return slab
+
+def square_slab(slab):
+	#now set f perpendicular to surface, means can't make it thicker any more!
+	#assumes that the slab is aligned with a3 perpendicular to (0,0,1)
+	slab.cell[2][1] = 0
+	slab.cell[2][0] = 0	
+	slab = wrap_coords(slab)
+	return slab
+		
+def acute_Guass(u,v):
+	"""best guess of what the implementation says to do....
+		not sure about this version of q but seems to work alright"""
+	def t(v1,u1):
+		#print u, v	
+		return np.dot(u1,v1)*1.0/np.dot(u1,u1)
+
+	u = np.array(u)
+	v = np.array(v)
+	if np.dot(u,u) < np.dot(v,v):
+		#makes v the shortest vector
+		tmp = u;	u = v; v = tmp;
+	#print "t(v,u) is", t(v,u)
+	#while  t(v,u) > 0.5 or t(v,u) < 0:
+	while   t(v,u) < 0:
+		#makes the basis acute
+		v = -v	
+		#print t(v,u)	
+	while np.dot(v,v) <= np.dot(u,u):
+		tmp = u;	u = v;  v = tmp;
+		if t(v,u) >= 0:
+			q = round(t(v,u)+0.5)
+		else:
+			q = -round(-t(v,u))	
+		e = np.sign(t(v,u)-q)
+		#print "e is {}, q is {}, t(v,u) is {}" .format(e,q,t(v,u))
+		v = e*(v-q*u)
+		#print u,v
+	return u,v			
+
+def basis_change(ab,uv,ruv):
+	#ab is final basis, uv is current, ruv is r in uv
+	#ab are tuples of basis vectors as rows
+	#rab are the components of r in the ab basis
+	A = np.transpose(ab);	#print(A)
+	U = np.transpose(uv);	#print(U)
+	M = np.dot(np.linalg.inv(A),U);	#print(M)
+	rab = np.dot(M,ruv)
+	return rab
+
+def AG_slab(slab):
+	a = [slab.cell[0][i] for i in range(0,2)]
+	b = [slab.cell[1][i] for i in range(0,2)]
+	a2,b2 = acute_Guass(a,b)
+	a2_ab = basis_change([a,b],[a2,b2],[1,0])
+	b2_ab = basis_change([a,b],[a2,b2],[0,1])
+	#add the 0 to them so that they can be cut out
+	a2_ab = np.append(a2_ab,0)	
+	b2_ab = np.append(b2_ab,0)
+	#slab = ase.build.cut(slab,a2_ab,b2_ab,(0,0,1))	#seems to sometimes chop atoms out of the cell :(
+	slab = cut_cell(slab,a2_ab,b2_ab,(0,0,1))	#seems to sometimes chop atoms out of the cell :(
+	return slab
+
+def reasnoble_slab_angles(Lmax=10,slab=None):
+	def filter_to_snp(abrep,a,b):
+		#gets passed a list of vectors
+		#filter it down to non-parallel
+		#taking the shortest option
+		angtol = 0.000001
+		lentol = 0.000001
+		ahat = a*1.0/np.linalg.norm(a)
+		vecs = []
+		for x in abrep:
+			v = a*x[0]+b*x[1]
+			vn = np.linalg.norm(v)
+			if abs(vn) <= lentol:
+				continue
+			ctheta = np.dot(v,ahat)/vn
+			theta = np.arccos(ctheta)
+			tested = False
+			for i,y in enumerate(vecs):
+				if (y[2]-angtol <= theta <= y[2] +angtol) or (y[2]-angtol <= np.pi - theta <= y[2]+angtol):
+					tested = True
+					if vn < y[3]:
+						vecs[i] = [x[0],x[1],theta,vn,v]
+					break
+			if not tested:
+				vecs.append([x[0],x[1],theta,vn,v])
+			
+		return vecs
+	#creates a list of reasnoble slab angles,areas of those slabs
+	#and slab vectors in terms of a,b
+	#considering slab lengths below Lmax
+	angles = []
+	vecs = []
+	
+	a = [slab.cell[0][i] for i in range(0,2)]
+	b = [slab.cell[1][i] for i in range(0,2)]
+	a = np.array(a);	b = np.array(b);
+	naMax = int(np.floor(Lmax/np.linalg.norm(a)))
+	for na in range(0,naMax+1):
+		A = na*a
+		d_vec = A - (np.dot(A,b)*1.0/np.linalg.norm(b)**2)*b
+		d = np.linalg.norm(d_vec)	
+
+		if d < Lmax:
+			#print  a, b, A, d_vec
+			d_ab = basis_change([a,b],[[1,0],[0,1]],d_vec)
+			nbf = np.round(d_ab[1])
+			nbc = nbf + 1
+			#add from nbc, until not within Lmax
+			while np.linalg.norm(A + nbc*b) <= Lmax:
+				vecs.append([na,nbc])
+				nbc +=1
+			#subtract from bvf, until not within Lmax
+			while np.linalg.norm(A +nbf*b) <= Lmax:
+				vecs.append([na,nbf])
+				nbf -=1
+				
+	#filter vecs, removing those which are parallel
+	vecs = filter_to_snp(vecs,a,b)
+	for i,c1 in enumerate(vecs):
+		for j in range(i,len(vecs)):
+			c2 = vecs[j]
+			v1 = c1[0]*a+c1[1]*b	
+			v2 = c2[0]*a+c2[1]*b	
+			if np.linalg.norm(v1) > 0 and np.linalg.norm(v2) > 0:
+				ctheta = np.dot(v1,v2)*1.0/(np.linalg.norm(v1)*np.linalg.norm(v2))
+				theta = np.arccos(ctheta)
+				#theta = np.round(theta,decimals=2)
+				Area = np.linalg.norm(np.cross(v1,v2))
+				if theta*180.0/np.pi > 1 and (np.pi-theta)*180.0/np.pi > 1:	#use 1 degree as cutoff
+					angles.append([theta,Area,[c1[0],c1[1]],[c2[0],c2[1]]])
+
+	return angles
+
+def LCM_float(x,y,Lmax,ptol):
+	#find nx -ny <=tol
+	"""VERY VERY SHITTY WAY OF DOING THIS LOLOOLOL"""
+	swap = False
+	tol = 0.001
+	if x < y:
+		t = x;	x = y; y = t;	
+		swap = True
+	Nxmax = int(np.ceil(Lmax*1.0/x))
+	Nymax = int(np.ceil(Lmax*1.0/y))
+	for nx in range(1,Nxmax):
+		ny = 1;
+		X = nx*x; Y = y
+		while X >= Y-tol and ny < Nymax:
+			Y = ny*y
+			if abs(X - Y)*100/X < ptol:
+				if not swap:
+					return True,nx,ny
+				else:
+					return True,ny,nx
+		
+			ny += 1
+	return False,0,0
+
+def flip_handedness(atoms):
+	pos = atoms.positions
+	sp = atoms.get_scaled_positions()
+	cell = [line for line in atoms.cell]
+	#swap a and b then swap scaled positions
+	temp = cell[0]
+	cell[0] = cell[1];	cell[1] = temp
+	atoms.cell = cell
+	swsp = [[x[1], x[0], x[2]] for x in sp]
+	atoms.set_scaled_positions(swsp)
+	return atoms
+	
+def match_angles(slab1_cell, angles1, slab2_cell, angles2, ptol=2.0, Lmax=15):
+	#pass angles objects
+	# angle, area,  coords of side vectors in terms of a1,a2
+	#ptol is percentage tolerance used to compare angles and lengths
+	def f(c1,c2,d1,d2):
+		#inputs are actual vectors of repeated slabs
+		#test to see which angles to compare
+		#print "fthinks c1,c2 are",c1,c2
+		#u = np.cross(c2,c1)
+		#v = np.cross(d2,d1)
+		#f = np.dot(u,v)
+		f=np.dot(np.cross(c2,c1),np.cross(d2,d1))
+		#if f ==0:
+		#	print "shite"
+		#	print c1,c2,d1,d2
+		#	print "u,v are: ", u, v
+		return f
+	def update_matches(x,y,nc1,nc2,nd1,nd2,matches,theta,tag):
+		Area = np.linalg.norm(np.cross(nc1*c1,nc2*c2))
+		#now convert nc1 etc to na1
+		c1fa1 = nc1*x[2][0];	c1fa2 = nc1*x[2][1]
+		c2fa1 = nc2*x[3][0];	c2fa2 = nc2*x[3][1]
+		d1fb1 = nd1*y[2][0];	d1fb2 = nd1*y[2][1]
+		d2fb1 = nd2*y[3][0];	d2fb2 = nd2*y[3][1]
+		matches.append([Area,theta,(c1fa1,c1fa2,0),(c2fa1,c2fa2,0),(d1fb1,d1fb2,0),(d2fb1,d2fb2,0),tag])					
+		#c1fa1 means how many a1 in final vector actually used to make the side of the slab
+		return matches
+
+	a1 = [slab1_cell[0][i] for i in range(0,2)]; a1=np.array(a1)
+	a2 = [slab1_cell[1][i] for i in range(0,2)]; a2=np.array(a2)
+	b1 = [slab2_cell[0][i] for i in range(0,2)]; b1=np.array(b1)
+	b2 = [slab2_cell[1][i] for i in range(0,2)]; b2=np.array(b2)
+	
+	
+	
+	matches = []
+	for x in angles1:
+		for y in angles2:
+			#print x,y
+			#print x
+			#print y
+			#time.sleep(0)
+			#check the angles match	
+			if abs((x[0]-y[0])*1.0/x[0])*100 < ptol:
+				c1 = a1*x[2][0]+a2*x[2][1]
+				c2 = a1*x[3][0]+a2*x[3][1]
+				d1 = b1*y[2][0]+b2*y[2][1]
+				d2 = b1*y[3][0]+b2*y[3][1]; #print "c1,c2 are {},{}" .format(c1,c2)
+							
+		
+				#theta1 = theat2
+				if f(c1,c2,d1,d2) > 0:
+					#print np.linalg.norm(c1)
+					#print np.linalg.norm(d1)
+					match1, nc1, nd1 = LCM_float(np.linalg.norm(c1),np.linalg.norm(d1),Lmax,ptol) #TODO change lentol and Maxmult
+					if match1:
+						match2, nc2, nd2 = LCM_float(np.linalg.norm(c2),np.linalg.norm(d2),Lmax,ptol) #TODO change lentol and Maxmult
+						if match2:
+							matches = update_matches(x,y,nc1,nc2,nd1,nd2,matches,x[0],"theta,f>")
+									
+		  
+				if f(c1,c2,d1,d2) < 0:
+					match1, nc1, nd2 = LCM_float(np.linalg.norm(c1),np.linalg.norm(d2),Lmax,ptol) #TODO change lentol and Maxmult
+					if match1:
+						match2, nc2, nd1 = LCM_float(np.linalg.norm(c2),np.linalg.norm(d1),Lmax,ptol) #TODO change lentol and Maxmult
+						if match2:
+							matches = update_matches(x,y,nc1,nc2,nd1,nd2,matches,x[0],"theta,f<")
+	
+			if abs((x[0]-(np.pi-y[0]))*1.0/x[0])*100 < ptol:
+				c1 = a1*x[2][0]+a2*x[2][1]
+				c2 = a1*x[3][0]+a2*x[3][1]
+				d1 = b1*y[2][0]+b2*y[2][1]
+				d2 = b1*y[3][0]+b2*y[3][1];	#print "c1,c2 are {},{}" .format(c1,c2)
+				if f(c1,c2,d1,d2) < 0:
+					match1, nc1, nd1 = LCM_float(np.linalg.norm(c1),np.linalg.norm(d1),Lmax,ptol) #TODO change lentol and Maxmult
+					if match1:
+						match2, nc2, nd2 = LCM_float(np.linalg.norm(c2),np.linalg.norm(d2),Lmax,ptol) #TODO change lentol and Maxmult
+						if match2:
+							matches = update_matches(x,y,nc1,nc2,nd1,nd2,matches,x[0],"pi-theta,f<")
+				if f(c1,c2,d1,d2) > 0:
+					match1, nc1, nd2 = LCM_float(np.linalg.norm(c1),np.linalg.norm(d2),Lmax,ptol) #TODO change lentol and Maxmult
+					if match1:
+						match2, nc2, nd1 = LCM_float(np.linalg.norm(c2),np.linalg.norm(d1),Lmax,ptol) #TODO change lentol and Maxmult
+						if match2:
+							matches = update_matches(x,y,nc1,nc2,nd1,nd2,matches,x[0],"pi-theta,f>")
+	#sort matches by area
+	matches = sorted(matches,key=lambda a_entry: a_entry[0])
+	if len(matches) == 0:
+		print "there is no way of mathching with these tolerances"
+		exit()
+	def filter_matches(matches):
+		print "selecting best match based on Area and sin(theta) from {} choices" .format(len(matches))
+		A = matches[0][0]
+		stheta = np.sin(matches[0][1])
+		best  = matches.pop(0)
+		ftol = 0.001
+		for x in matches:
+			if x[0] <= A + ftol and np.sin(x[1]) > stheta:
+				A = x[0]
+				stheta = np.sin(x[1])
+				best = x
+		return best
+	best = filter_matches(matches)	
+	return best
+
+def invert_axis(slab,axis):
+	#flips the sign of one of the slabs axis
+	#scaled coords adjusted accordingly
+	sp = slab.get_scaled_positions()
+	sp2 = []
+	for line in sp:
+		l2 = [x for x in line]
+		l2[axis] = 1-l2[axis]
+		sp2.append(l2)
+	slab.cell[axis] = -slab.cell[axis]
+	slab.set_scaled_positions(sp2)
+	return slab
+
+def align_slab_axes(slab1,slab2,ptol):
+	#print "this is slab1.cell ", slab1.cell
+	#enforce a3,b3 parallel to (0,0,1)
+	#assumed that a3,b3 are already parell to the z axis
+	a1 = np.array([x for x in slab1.cell[0]])
+	a2 = np.array([x for x in slab1.cell[1]])
+	b1 = np.array([x for x in slab2.cell[0]])
+	b2 = np.array([x for x in slab2.cell[1]])
+	#sp = slab2.get_scaled_positions()
+
+	def rotate(b,a,slab2):
+		sp = slab2.get_scaled_positions()
+		R = ase.build.tools.rotation_matrix([0,0,1],[0,0,1],b,a)
+		slab2.cell = np.transpose(np.dot(R,np.transpose(slab2.cell)))
+		slab2.set_scaled_positions(sp)
+		return slab2
+	def theta(a,b):
+		ahat = a/np.linalg.norm(a)
+		bhat = b/np.linalg.norm(b)
+		ctheta = np.dot(ahat,bhat)
+		theta = np.arccos(ctheta)
+		return theta
+
+	con =  np.dot(np.cross(a1,a2),np.cross(b1,b2))
+	ptol = 1.02 *ptol	#to avoid any rounding errors
+	if con > 0:
+		#match a1 to b1
+		#if abs(np.linalg.norm(a1)-np.linalg.norm(b1)) < abs(np.linalg.norm(a1)-np.linalg.norm(b2)):
+		if abs((theta(a1,a2) - theta(b1,b2))/theta(a1,a2)) *100 < ptol:
+			#print theta(a1,a2), theta(b1,b2)
+			slab2 = rotate(b1,a1,slab2)
+			print "con>0, theta same"
+		else:
+			slab2 = invert_axis(slab2,1)
+			slab2 = rotate(-b2,a1,slab2)
+			#print theta(a1,a2), theta(b1,b2)
+			print "con>0, theta NOT same"
+	else:
+		#match a1 to b2	
+		#if abs(np.linalg.norm(a1)-np.linalg.norm(b2)) < abs(np.linalg.norm(a1)-np.linalg.norm(b1)):
+		if abs((theta(a1,a2) - theta(b2,b1))/theta(a1,a2)) *100 < ptol:
+			slab2 = rotate(b2,a1,slab2)
+			print "con<0, theta same"
+		else:
+			slab2 = invert_axis(slab2,1)
+			slab2 = rotate(b1,a1,slab2)
+			print "con<0, theta NOT same"
+	#slab2.cell = cell2
+	#slab2.set_scaled_positions(sp)
+	return slab1,slab2
+
+def plot_slab_axes(slab1,slab2):
+	ax = plt.axes()
+	def plot_arrow(Offset,vec,ax,c):
+		ax.arrow(Offset,Offset,vec[0],vec[1],head_width=0.05,head_length=0.1,fc=c,ec=c)
+		ax.set_xlim((-10,10))
+		ax.set_ylim((-10,10))			
+		return ax
+
+	#ax = plot_arrow(1,slab1.cell[0],ax,"b")
+	#ax = plot_arrow(1,slab1.cell[1],ax,"k")
+        ax = plot_arrow(0,slab1.cell[0],ax,"b")
+	ax = plot_arrow(0,slab1.cell[1],ax,"k")
+	ax = plot_arrow(0,slab2.cell[0],ax,"r")
+	ax = plot_arrow(0,slab2.cell[1],ax,"g")
+	plt.show()
+
+def cut_cell(atoms,a1,a2,a3,origin=(0,0,0)):
+	tol = 10**-15
+	"""if atoms have scaled positions closer to the edge than tolerance
+	then ase.build.cut fails... how shit!! this took quite a while to find but
+	it makes sense from the stunning way its written ARGRGRGRGH
+	IF YOU KNOW YOUR FUNCTION CHOPS OFF ATOMS SURELY IT SHOULD MOVE THEM IN
+	ALSO WHY THE FUCK WOULD YOU WRITE IT SO THAT IT CAN DO THAT, SURELY PRESERVING
+	NUMBER DENSITY IS FUCKING BASIC CRITERA ALWAYS, NOT JUST SOMETIMES SO PEOPLE WASTE AGES
+	TESTING WHY THEIR CODE IS CAUSING THE ERROR WHEN ITS YOUR LOAD OF ABSOLUTE CRUD."""
+	sp = atoms.get_scaled_positions()
+	
+	for i,x in enumerate(sp):
+		for j,y in enumerate(x):
+			y %= 1
+			if y >= 1 - tol:
+				sp[i][j] = tol
+			elif y <= tol:
+				sp[i][j] = tol
+	atoms.set_scaled_positions(sp)
+	atoms2 = ase.build.cut(atoms,a1,a2,a3,origo=origin,tolerance=0.1*tol)
+	
+	
+	ri = number_density(atoms)
+	rf = number_density(atoms2)
+	pd = abs((rf-ri)/ri)*100
+
+	print "number density has changed by", pd, "percent during cutting"
+	if pd > 0.0011:
+		print len(atoms.positions),len(atoms2.positions)
+		print a1, a2, a3
+		print atoms.get_scaled_positions()
+		print atoms2.get_scaled_positions()
+	return atoms2
+
+def number_density(slab):
+	N = len(slab.positions)
+	a1 = slab.cell[0]
+	a2 = slab.cell[1]
+	a3 = slab.cell[2]
+	V = abs(np.dot(a3,np.cross(a1,a2)))
+	return N*1.0/V
+	
+
+def final_handedness_flip(slab1,slab2):
+	#test handedness of cells
+	h1 = np.linalg.det(slab1.cell)
+	h2 = np.linalg.det(slab2.cell)
+	if h2*h1 < 0:
+		#need to swap a:b of slab2 then realign
+		print "FLIPPING HANDEDESS"
+		slab2 = flip_handedness(slab2)
+		a1 = slab1.cell[0];	a2 = slab1.cell[1]
+		b1 = slab2.cell[0];	b2 = slab2.cell[1]
+
+		if np.dot(np.cross(a1,a2),np.cross(b1,b2)) > 0:
+			R = ase.build.tools.rotation_matrix((0,0,1),(0,0,1),slab2.cell[0],slab1.cell[0])
+		else:
+			R = ase.build.tools.rotation_matrix((0,0,1),(0,0,1),slab2.cell[1],slab1.cell[0])
+		slab2.cell = np.transpose(np.dot(R,np.transpose(slab2.cell)))
+
+	return slab1,slab2
+
+
+def misfit(slab1,slab2,ptol=2,ifPlot=False): #Computes the misfit parameter between two slabs. (see Surf. Interface Anal. 2003, 35, 835-841. )
+        #Assuimng that two slabs are well aligned, overlap area should be equalt to smaller one's surface area.
+        #align_slab_axes(slab1,slab2,ptol)
+        #A1 = np.linalg.norm(np.cross(slab1.cell[0],slab1.cell[1]))
+        #A2 = np.linalg.norm(np.cross(slab2.cell[0],slab2.cell[1]))
+        A1=surf_area(slab1);A2=surf_area(slab2)
+        #print A1,A2
+        if ifPlot: plot_slab_axes(slab1,slab2)
+        return 1 - 2*min(A1,A2)/(A1+A2)
+
+def surf_area(slab1):
+        return np.linalg.norm(np.cross(slab1.cell[0],slab1.cell[1]))
+
+def volume(cell):
+        return np.abs(np.dot(cell[2], np.cross(cell[0], cell[1])))
+
+def get_fu(atoms):
+        aTypes=atoms.get_chemical_symbols()
+        atoms={}
+        #print aTypes
+        for at in aTypes:
+            #print ln
+            #at=ln.split()[0]
+            if not atoms.has_key(at):atoms[at]=1
+            else: atoms[at]+=1
+        
+
+        keys=atoms.keys()
+        keys.sort()
+        content=""
+        for key in keys:
+                content+=key
+                if atoms[key]!=1:content+=str(atoms[key])
+
+        #Determine the formula unit.
+
+        try:
+                fu=1
+                vals=atoms.values()
+                for i in range(2,min(vals)+1):
+                        fl=1
+                        for j in vals:
+                                if j%i!=0:fl=0
+                        if fl:fu=i
+        #print fu
+        except: print "Error in fu determination, fu set to 1";   fu=1
+    
+        return fu
+
+def conv_layers(atoms,ifPlot=False,ifPrim=False):#layer convergence test (Input atoms with a calc object). 
+        #print "Convergence of E/atom vs. #layers"
+        Etol=1e-2 #eV/atom
+        Ftol=5e-2 #eV/Angstroem
+        Estr=0.1 #GPa
+
+        
+        #Initial values
+        E=[0]; F=[0]; S=[0]
+        atoms_orig=atoms.copy()
+        calc=atoms.get_calculator()
+        
+        #find the primitive cells to reduce comp. efforts.
+        if ifPrim: atoms=find_prim(atoms);atoms.set_calculator(calc)
+        
+        atoms.center(vacuum=4.0, axis=2)
+        nAt=atoms.get_number_of_atoms()
+        E.append(atoms.get_potential_energy()/nAt)
+        i=1;layers=[1]
+        while abs(E[i]-E[i-1]) > Etol:
+                layers.append(1+1*i)
+                atoms=atoms_orig.copy()
+                atoms=atoms.repeat((1,1,layers[-1]))
+                atoms.center(vacuum=4.0, axis=2)
+                atoms.set_calculator(calc)
+                #view(atoms)
+                nAt=atoms.get_number_of_atoms()
+                E.append(atoms.get_potential_energy()/nAt)
+                print "Iter. #%d, #layers: %d, #atoms: %d "%(i,layers[-1],nAt)
+                print "deltaE: %.3e eV/atom; target: %.3e eV."%(abs(E[i]-E[i-1]),Etol)
+                i += 1
+        print "conv_layers: E/atom converged to %.2f eV with %d layers."%(Etol,layers[-1])
+        if ifPlot: #Do plotting of E/atom vs. #layers
+                plt.plot(layers,E[1:], 'ko-')
+                plt.xlabel('Number of layers')
+                plt.ylabel('Energy per atom (eV/atom)')
+                #plt.savefig('layer-conv.png')
+                plt.show()
+                
+        return layers[-1],E[-1]*nAt,atoms
+                
+
+def find_prim(atoms,tol=1e-4):#using SPGlib find primitive cell of a given atoms object.
+        scaled_positions= atoms.get_scaled_positions()#(wrap=True) 
+        cell=(atoms.cell, scaled_positions, atoms.numbers)
+        #print cell
+        print "Space group of the given cell using tolerance=%f: %s"%(tol,get_spacegroup(cell,symprec=tol))
+        lattice, scaled_positions, numbers = find_primitive(cell, symprec=tol)
+        #lattice, scaled_positions, numbers = standardize_cell(cell, to_primitive=True, no_idealize=False, symprec=tol)
+        atoms2=Atoms(symbols=numbers,cell=lattice,scaled_positions=scaled_positions,pbc=True)
+        return atoms2
+
+def call_castep(atoms,calc=None, typ="sp",PP='',wDir='./CASTEP-tmp',name='try',param='opt.param',resDir="",dipolCorr=False,dipolDir='z',KPgrid="1 1 1",KPspacing="", ifPrint=False,ifDryRun=False,ENCUT=0,ifManualRun=True):
+
+    exe="mpirun -n 4 castep";PP_path='/rscratch/bk393/pspots/CASTEP'
+    #system("export CASTEP_COMMAND='%s'"%exe)
+    #system("export CASTEP_COMMAND='mpirun -n 4 castep'")
+    #system("export CASTEP_PP_PATH='%s'"%PP_path)
+
+    if calc!=None:
+            #This is good for assiging the settings from a previously created Calculator object (i.e. not to repeat all the settings the second time). None of the other options will be taken into account.
+            atoms.set_calculator(calc)
+            return atoms
+
+    calc = ase.calculators.castep.Castep()
+
+    #Assign the environment variables.
+    calc._castep_command=exe
+    calc._castep_pp_path=PP_path
+    
+    # include interface settings in .param file
+    calc._export_settings = True
+
+    # reuse the same directory
+    calc._directory = wDir
+    calc._rename_existing_dir = False
+    calc._label = name
+
+    
+    if param:
+        #Read paramters from param file input.
+        calc.merge_param(param)
+    else:        
+        # Use default param settings (depreceated)
+        calc.param.xc_functional = 'PBE'
+        calc.param.cut_off_energy = 100 #500
+        calc.param.num_dump_cycles = 0
+        calc.param.geom_method = "lbfgs"
+        calc.param.geom_max_iter= 10
+        calc.param.write_cell_structure=True
+        calc.param.spin_polarised=False
+        calc.param.opt_strategy="speed"
+        calc.param.mix_history_length=20
+        calc.param.max_scf_cycles=100
+        calc.param.calculate_stress=True
+        #calc.param.finite_basis_corr=0
+    
+    # Cell settings
+    #
+    calc.cell.symmetry_generate=True
+    calc.cell.snap_to_symmetry=True
+    if KPspacing:calc.cell.kpoints_mp_spacing = str(KPspacing) #default=0.05 2pi*eV/A
+    else: calc.cell.kpoint_mp_grid = KPgrid #def='1 1 1'
+    
+    #calc.cell.fix_com = False
+    #calc.cell.fix_all_cell = True
+
+     
+    #This overwrites the task paramter from the param input.
+    if typ.lower()=="sp":    calc.param.task = 'SinglePoint'
+    elif typ.lower()=="geom":calc.Task = 'GeometryOptimization'
+    
+    if dipolCorr: #def: No dipole corrections. 
+        if dipolCorr=="SC": calc.param.dipole_correction= "SELFCONSISTENT"
+        elif dipolCorr=="static": calc.param.dipole_correction= "static"
+        else: calc.param.dipole_correction= "None"
+        calc.param.dipole_dir=dipolDir #options: x,y,z and a (only energy-corr)
+
+        
+    
+    #calc.initialize()#Creates all needed input in the _directory. (Not needed for actual run.)
+    atoms.set_calculator(calc)  #Set for the previously created interface
+
+    if ENCUT!=0: calc.param.cut_off_energy=ENCUT
+    
+    if PP!="":#otherwise on-the-fly(OTF) is used as default
+        fnc=str(calc.param.xc_functional).split("\n")[1].upper()
+        #print fnc
+        PP=PP.upper()
+        #print PP.lower().find(str(calc.param.xc_functional).lower())
+        if PP != "OTF" and  PP.find(fnc)== -1:
+                print "There is a problem with the pseudopotential choice. \nSelected PP does not match with XC functional being used: ",PP,fnc
+                exit()
+        elif PP=="OTF": None #default is OTF anyway.
+        else: atoms.calc.set_pspot(PP)  #This automatically sets the pseudo-potential for all present species to <Species>_<library>.usp. Make sure that _castep_pp_path is set correctly in the shell.
+
+
+    # Or Read all settings from previous calculation
+    if resDir != "": #Does not read from checkpoint file for some reason, needs to be checked !!
+        # Reset to CASTEP default
+        #atoms.calc.param.task.clear()
+        atoms = ase.io.castep.read_seed('%s/%s' % (wDir,name))
+        calc.param.reuse=True
+        calc.param._try_reuse=True
+        calc._export_settings = True
+        #print atoms.calc,"bora\n\n",calc
+        
+    if ifPrint:print (calc) #prints calculation summary.
+
+    # necessary for tasks with changing positions
+    # such as GeometryOptimization or MolecularDynamics (This option does not work as deisgnated !!! The atomic coords are not updated at the end of the geom. opt. unlike the energy.
+    calc._set_atoms = True
+    atoms.calc._set_atoms = True
+    
+    
+    # Check for correct input
+    if not ifDryRun:
+            if ifManualRun: #If a manual run of the CASTEP is needed.
+                    #str1="%s %s/%s"%(exe,wDir,name)
+                    str1="%s %s"%(exe,name)
+                    print "Running ",str1
+                    calc._copy_pspots=True
+                    calc.initialize()
+
+                    chdir(wDir)
+                    
+                    system(str1) #PSPOT missing in the folder
+                    #x=parseCASTEP("%s/%s.geom"%(wDir,name),atoms=atoms)
+                    x=parseCASTEP("%s.geom"%(name),atoms=atoms)
+                    return x
+                    
+            else: #CASTEP calculation is not done here. It will be called in the main script, when trying to reach the attributes, e.g. atoms.get_potential_energy().
+                    return atoms
+    else:
+            if calc.dryrun_ok():
+
+                    return atoms
+            else:
+                    print("CASTEP run: Found error in input")
+                    print(calc._error)
+                    return None
+            
+def parseCASTEP(fname,atoms=None):
+        #Read the CASTEP output to retrieve final 0K energy, atomic coords (Cart. and fractional), and forces.
+        bohr2ang=0.52917721
+        Ha2eV=27.211386
+        atP2GPa=0.29421912e5 #P in atomic units to GPa.
+        E=0.0;H=0.0 #Total Energy and Enthalpy
+        h=[] #unit cell vectors
+        s=[] # stress tensor
+        xyz=[] #Cartesian atomic coords.
+        fract=[] #fractional atomic coords.
+
+        print "Parsing ",fname
+        if fname.split(".")[1]=="geom":
+                try: tSteps=len(popen("grep '<-- c' %s"%fname).readlines())-1
+                except:tSteps=0
+
+                flag=0
+                for ln in open(fname,'r').readlines():
+                        ln=ln[0:-1]
+                        if not flag and search("<-- c",ln):
+                                if int(ln.split()[0])==tSteps:
+                                        #print 'here'
+                                        flag=1
+                        elif flag:
+                                if search("<-- E",ln):E=float(ln.split()[1])*Ha2eV; H=float(ln.split()[1])*Ha2eV
+                                elif search("<-- h",ln): h.append([float(i)*bohr2ang for i in ln.split()[0:3]])
+                                elif search("<-- S",ln): s.append([float(i)*atP2GPa for i in ln.split()[0:3]])
+                                elif search("<-- R",ln): xyz.append([float(i)*bohr2ang for i in ln.split()[2:5]])
+                                elif search("<-- F",ln): fract.append([float(i)*bohr2ang for i in ln.split()[2:5]])
+                                
+                                
+       
+        elif fname.split(".")[1]=="castep":
+                None
+                   #TAMAMLA!!!!
+                   
+        if atoms != None:
+                #print np.array(h),np.array(s),np.array(xyz),np.array(fract)
+                atoms.set_cell(np.array(h))
+                atoms.set_positions(np.array(xyz))
+                atoms.set_scaled_positions(np.array(xyz)) #wheether to use both ast?
+                return E, H, s, atoms
+        else:
+                return E, H, s, xyz, fract, atoms
+                
+
+def get_interface_energy(slab1,slab2,Ebulk1,Ebulk2,dist=1.0,convLayers=False): #Input is slab1,slab2 as Atoms object with a calculator property assigned.
+        if not slab2.has(calc):
+                calc=slab1.get_calculator()
+                slab2.set_calculator(calc)
+        
+        if convLayers: #A layer convergence test is done here!.
+                print "Layer convergence test is switched on."
+                #slab1.set_calculator(calc)
+                slab1=call_castep(slab1,typ="SP",dipolCorr='SC',name='slab1',ENCUT=ecut,KPgrid='1 1 1',PP=pp) #Use SP for efficiecy.
+                calc=slab1.get_calculator()       
+                print "Working on slab 1."
+                nl1,Eslab1,slab1=conv_layers(slab1)#,ifPrim=1)  #Vacuum layer is added automatically within the function.
+                fu1=get_fu(slab1)
+                
+                #slab2=call_castep(slab2,typ="SP",dipolCorr='SC',name='slab2',ENCUT=ecut,KPgrid='1 1 1',PP=pp)
+                
+                slab2.set_calculator(calc)
+                slab2.calc._label="slab2"    #change name for slab2
+                print "Working on slab 2."                
+                nl2,Eslab2,slab2=conv_layers(slab2)#,ifPrim=1)
+
+                fu2=get_fu(slab2)
+                print nl1,nl2,Eslab1,Eslab2,fu1,fu2
+
+        else:
+                slab1_vac=slab1.copy();slab2_vac=slab2.copy();
+                slab1_vac.center(vacuum=4.0, axis=2)
+                slab2_vac.center(vacuum=4.0, axis=2)
+                #atoms=call_castep(slab1_vac,typ="SP",dipolCorr='SC',name='slab1',ENCUT=ecut,KPgrid='1 1 1',PP=pp)
+                atoms=slab1_vac
+                atoms.set_calculator(calc)
+                Eslab1=atoms.get_potential_energy()
+                fu1=get_fu(atoms)
+                
+                #atoms=call_castep(slab2_vac,typ="SP",dipolCorr='SC',name='slab2',ENCUT=ecut,KPgrid='1 1 1',PP=pp)
+                atoms=slab2_vac
+                atoms.set_calculator(calc)
+                atoms.calc._label="slab2"
+                Eslab2=atoms.get_potential_energy()
+                fu2=get_fu(atoms)
+
+        #view(slab1.repeat((2,2,1)))
+        #view(slab2.repeat((2,2,1)))
+        ase.io.write("slab1.cell",slab1.repeat((2,2,1)),format='castep-cell')
+        ase.io.write("slab2.cell",slab2.repeat((2,2,1)),format='castep-cell')
+        #ase.io.write("slab11.cell",slab1a,format='castep-cell')
+
+        Ws1=(Eslab1-fu1*Ebulk1)/2/surf_area(slab1)/0.01 #A2 to nm2
+        Ws2=(Eslab2-fu2*Ebulk2)/2/surf_area(slab2)/0.01 #A2 to nm2
+        
+        print('%s: %s eV' % ('Ebulk 1', Ebulk1))
+        print('%s: %s eV' % ('Ebulk 2', Ebulk2))
+        print('%s: %s eV' % ('Eslab 1', Eslab1))
+        print('%s: %s eV' % ('Eslab 2', Eslab2))
+        print('%s: %.2f eV/nm^2' % ('Wsurf 1', Ws1))
+        print('%s: %.2f eV/nm^2' % ('Wsurf 2', Ws2))
+
+        #exit()
+        
+        #Interface before alignment.
+        print "Creating the interface with given slabs."
+        int1=ase.build.stack(slab1, slab2, axis=2, maxstrain=None, distance=dist,cell=None,reorder=True)
+        int1.center(vacuum=4.0,axis=2)
+        view(int1)
+        ase.io.write("interface1.cell",int1.repeat((2,2,1)),format='castep-cell')
+        atoms=call_castep(slab1_vac,typ="SP",dipolCorr='SC',name='int1',ENCUT=500,KPgrid='1 1 1',PP=pp)
+        #atoms=int1
+        #atoms.set_calculator(calc)
+        Eint=atoms.get_potential_energy()
+
+        #Wad=(Ws1+Ws2-Eint)/surf_area(int1)/0.01 #A2 to nm2 #check the formula Ea isntead of Wsurf?? This is wrong
+        #print('Wad before alingment: %.2f eV/nm^2'%Wad)
+
+        Wad=(Eslab1+Eslab2-Eint)/surf_area(int1)/0.01 #A2 to nm2 #check the formula Ea isntead of Wsurf??
+        
+        print('W_ad before alingment: %.2f eV/nm^2'%Wad)
+        return Eslab1,Eslab2,Ws1,Ws2,int1#surf_area(int1)
+
+
+                
+if __name__== '__main__':
+	#read in arguments
+	parser = argparse.ArgumentParser()
+	parser.add_argument("-i1", "--infile1", default="Li.cell")
+	parser.add_argument("-o", "--outfile")
+	parser.add_argument("-i2", "--infile2", default="Al.cell")
+	parser.add_argument("-m1","--miller1", default=(1,0,0), nargs="+", type=int)
+	parser.add_argument("-m2","--miller2", default=(1,0,0), nargs="+", type=int)
+	args = parser.parse_args()
+
+	infile1 = args.infile1
+	miller1 = tuple(args.miller1)
+	infile2= args.infile2
+	miller2 = tuple(args.miller2)
+	if args.outfile:
+		outfile = args.outfile
+	else:
+		outfile ="interfaces.out"
+	
+	#tolerances
+	Lmax = 80	#max length of cell sides
+	L = 10
+	Lstep = 10
+	#T = 1.5	#thickness of slabs
+        T=6
+	ptol = 2	#percentage tolerances for angle and length matching
+
+        ecut=300 #cutoff energy in eV
+        pp="00PBE" #pseudopt to use in CASTEP calcs.Def (pp=""): OTF
+        dirr="./CASTEP-tmp"
+        
+	#read in atoms and construct slab, need to repeat atoms to make view work
+        print "Reading data from %s and %s."%(infile1,infile2)
+        if infile1.split(".")[1]=="cell":
+	        atoms1 = ase.io.read(infile1, format='castep-cell')
+        elif infile1.split(".")[1]=="cif":
+	        atoms1 = ase.io.read(infile1, format='cif')
+        if infile2.split(".")[1]=="cell":
+	        atoms2 = ase.io.read(infile2, format='castep-cell')
+        elif infile2.split(".")[1]=="cif":
+	        atoms2 = ase.io.read(infile2, format='cif')            
+
+        print "Structure 1: %s with fu=%d"%(atoms1.get_chemical_formula(),get_fu(atoms1))
+        print "Structure 2: %s with fu=%d"%(atoms2.get_chemical_formula(),get_fu(atoms2))
+        if 0: atoms1=find_prim(atoms1); atoms2=find_prim(atoms2)
+        #Get the bulk energy per formula unit.
+        system("rm -f CASTEP-tmp/*")
+        
+        print "Computing bulk 1 energy."
+        x=call_castep(atoms1,typ="geom",dipolCorr='None',name='bulk1',ENCUT=ecut,PP=pp,KPspacing=0.10) #normally use K-point spacing.
+        atoms1=x[-1]
+        print x
+        print atoms1.get_positions()
+        print atoms1.get_scaled_positions()
+
+        exit()                                                                                                                        
+        fu1=get_fu(atoms1)
+        sa1=surf_area(atoms1)
+        Ebulk1 /= fu1
+
+        calc=atoms1.get_calculator()
+        atoms2.set_calculator(calc)
+        atoms2.calc._label="bulk2" #rename bulk2.
+        atoms2.calc._set_atoms=True
+        #atoms2=call_castep(atoms2,typ="sp",dipolCorr='None',name='bulk2',ENCUT=ecut,PP=pp,KPspacing=0.05)
+        print "Computing bulk 2 energy."
+        #print atoms2.get_positions()
+        #Ebulk2=atoms2.get_potential_energy()
+        #print atoms2.get_positions()
+        fu2=get_fu(atoms2)
+        Ebulk2 /= fu2
+        sa2=surf_area(atoms2)
+
+        #print Ebulk1,Ebulk2
+        #print fu1,fu2
+        #print sa1,sa2
+
+
+
+        fname=dirr+"/bulk1.geom"
+        x=parseCASTEP(fname)
+        
+
+        
+        exit()        
+
+        #Create the intial slabs with given Miller indices (before alignment).
+        print "Creating the initial slabs."
+        slab1 = make_slab(miller1,atoms1,repeat=(1,1,1),square=False)
+	slab2 = make_slab(miller2,atoms2,repeat=(1,1,1),square=False)
+        #slab1 = square_slab(slab1) #Not originally here. does not work properly here.
+        
+        at=call_castep(slab1,typ="sp",dipolCorr='SC',name='slab1',ENCUT=ecut,KPgrid='1 1 1',PP=pp)
+        calc=at.get_calculator()
+
+
+        niggli=0
+        #Not originally here. (Helps increase the overlab between surfaces. i.e. lower lattice misfit).
+        if niggli: niggli_reduce(slab1);niggli_reduce(slab2)
+        if 0: slab1=find_prim(slab1);slab2=find_prim(slab2) #does not work.
+        
+        ase.io.write("slab1.cell",slab1.repeat((2,2,1)),format='castep-cell')
+        ase.io.write("slab2.cell",slab2.repeat((2,2,1)),format='castep-cell')
+        #Interface before alignment. (this part should be moved to get_int.. func).
+        print "Creating the interface with given slabs."
+        int1=ase.build.stack(slab1, slab2, axis=2, maxstrain=None, distance=1.0,cell=None,reorder=True)
+        int1.center(vacuum=4.0,axis=2)
+        view(int1)
+        ase.io.write("interface1.cell",int1.repeat((2,2,1)),format='castep-cell')
+        ase.io.write("interface1.cif",int1.repeat((2,2,1)),format='cif')
+        #print get_interface_energy(slab1,slab2,Ebulk1,Ebulk2)
+        
+        #exit()
+
+
+        ######################
+        # Alignment of Slabs #
+        ######################
+        
+	sucess = False
+	while L <= Lmax and sucess == False:
+		print "trying with L is", L
+		angles2 = reasnoble_slab_angles(Lmax=L,slab=slab2)
+		angles1 = reasnoble_slab_angles(Lmax=L,slab=slab1)	
+		print "comparing {} possible pairs" .format(len(angles1)*len(angles2))	
+		#angles contains all pairs of cell vectors where both are shorter than Lmax
+		if len(angles1) > 0 and len(angles2) > 0:
+			try:
+				choice =  match_angles(slab1.cell, angles1, slab2.cell, angles2, ptol=2, Lmax=L)
+				sucess = True
+			except:
+				pass	
+		if sucess == False:
+			L += Lstep
+	if sucess == False:
+		print "not possible within these tolerances"
+		exit()				
+		
+		
+
+	print "choice is ",choice
+
+	#repeat slabs as specified
+	crep = np.ceil(abs(T/np.dot(slab1.cell[2],(0,0,1))))
+	slab1 = cut_cell(slab1,choice[2],choice[3],(0,0,crep))
+	slab1 = square_slab(slab1)
+
+	crep = np.ceil(abs(T/np.dot(slab2.cell[2],(0,0,1))))
+	slab2 = cut_cell(slab2,choice[4],choice[5],(0,0,crep))
+	slab2 = square_slab(slab2)
+	
+
+
+	#perform final alignments	
+	slab1,slab2 = align_slab_axes(slab1,slab2,ptol)
+	slab1,slab2 = final_handedness_flip(slab1,slab2)
+
+	#output useul info
+	print "slab 1"
+	for line in slab1.cell:
+		print line, np.linalg.norm(line)
+
+	print "slab 2"
+	for line in slab2.cell:
+		print line, np.linalg.norm(line)	
+
+	#confirm that atom densities are the same as at the start
+	ri = number_density(atoms1)
+	rf = number_density(slab1)
+	pd = abs((ri-rf)/ri*100)
+	print "number density of slab1 has changed by {} percent" .format(pd)
+	
+	ri = number_density(atoms2)
+	rf = number_density(slab2)
+	pd = abs((ri-rf)/ri*100)
+	print "number density of slab2 has changed by {} percent" .format(pd)
+
+
+
+        #Compute the surfafce energies.
+
+
+
+
+        
+
+        #Create the interface.
+        interface=ase.build.stack(slab1, slab2, axis=2, maxstrain=None, distance=1.0,cell=None,reorder=True)
+        #interface = wrap_coords(interface)
+        #interface.wrap()
+        interface.center(vacuum=4.0, axis=2) #Vacuum on both sides. For dipole corrections at least 8A vacuum is needed.
+
+        #view(slab1.repeat((1,1,1)))
+        ase.io.write("slab1a.cell",slab1,format='castep-cell')
+        ase.io.write("slab2a.cell",slab2,format='castep-cell')
+
+        if niggli: niggli_reduce(interface)
+	view(interface)
+        ase.io.write("interface.cell",interface,format='castep-cell')
+        ase.io.write("interface.cif",interface,format='cif')
+        
+        #plt.show()
+        print "Misfit (mu) of slabs 1 and 2: %.3e"%misfit(slab1,slab2)#,ifPlot=1)
+        
+        exit()
+
+
+
+        Li = bcc110("Li", (4, 4, 6)) #This one is the lowest surface.No of repetitions.
+        #Li = surface('Li', (1, 1, 0), 3)#,10) #You don't have to know about the type fcc,hcp, etc. 
+        Li.center(vacuum=10, axis=2) #Adds 10A vacuum in z-dir
+        Li.set_pbc(1)
+        view(Li)
+
+        exit()
+
+        
+
+
+        #typ=sp or typ=geom
+        atoms=call_castep(interface,typ="sp",name='run1')
+        #atoms.calc._pedantic=True
+        print('%s: %s ' % ('Ep without dipole corr', atoms.get_potential_energy()))
+        #atoms.calc.param.reuse = True  #needs check file to be present.
+        #atoms.calc._try_reuse=True #does not help.
+        #atoms=call_castep(interface,typ="SP",name='run1',resDir="./CASTEP-tmp")
+        #print('%s: %s ' % ('E', atoms.get_total_energy())) #CASTEP calc. is repeated every time !!
+
+        exit()
+        atoms=call_castep(interface,typ="SP",dipolCorr='SC',name='run2')
+        print('%s: %s ' % ('Ep with dipole corr', atoms.get_potential_energy()))
+        
+       
+        #get_potential_energy()=get_total_energy() for castep.
+        
+        #print('%s : %s ' % (atoms.calc._label, atoms.get_dipole_moment()))
+        #print('%s : %s ' % (atoms.calc._label, atoms.get_charges()))
+        
+        """get_potential_energy()
+        get_potential_energies()
+        get_forces()
+        get_stress()
+        get_stresses()
+        get_total_energy()
+        get_magnetic_moments()
+        get_magnetic_moment()
+        """
+        exit()
+        
+        #One should also check the strain when creating the interface.
+        interface = ase.build.stack(slab1, slab2, axis=2, maxstrain=2, distance=1.0,cell=None,reorder=True)
+        interface.wrap()
+        interface.center(vacuum=7.5, axis=2)
+	view(interface)
+	
+
+##################
+# Excluded Parts #
+##################
+
+        #Setting system variables inside the Python code deos not work. Has to be done in the shell.
+        #exe="mpirun -n 4 castep"; PP_path='/rscratch/bk393/pspots/CASTEP'
+        #system("export CASTEP_COMMAND='%s'"%exe)
+        #system("export CASTEP_COMMAND='mpirun -n 4 castep'")
+        #system("export CASTEP_PP_PATH='%s'"%PP_path)
+
+
+        #Randomise atomic positions (not needed).
+        #slab1.rattle(stdev=0.3) #def: 0.001
+        #slab2.rattle(stdev=0.3) #def: 0.001
+
+
+                #atoms1.calc._set_atoms=True
+        #print atoms1.calc
+        #Ebulk1=atoms1.get_potential_energy() #returns 0K energy (E-0.5TS).
+        
+        #print Ebulk1
+        #print atoms1.get_potential_energy(force_consistent=True) #returns free enrergy (E-TS) 
+        #print atoms1.get_total_energy()  #same as potential energy (E-0.5TS).
+        #print atoms1.get_positions()
+        #print atoms1.get_scaled_positions()
+        #This does the geoemtry optimization and gets the final energy however the atomic positions (Cart or fractional) are not updated (even using the ._set_atoms=True option !!! This alos applies to get_total_energy etc. CASTEP must be run by hand and the output must be parsed (use _prepare_input_only option for CASTEP input files)!!! No problem with SP as no update on atomic coords.
