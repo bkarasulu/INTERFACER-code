@@ -1,0 +1,78 @@
+ running on  128 total cores
+ distrk:  each k-point on  128 cores,    1 groups
+ distr:  one band on   16 cores,    8 groups
+ vasp.6.2.1 16May21 (build Dec 23 2021 00:35:04) complex                        
+  
+ POSCAR found type information on POSCAR Na
+ POSCAR found :  1 types and       6 ions
+ scaLAPACK will be used
+ -----------------------------------------------------------------------------
+|                                                                             |
+|               ----> ADVICE to this user running VASP <----                  |
+|                                                                             |
+|     You have a (more or less) 'small supercell' and for smaller cells       |
+|     it is recommended to use the reciprocal-space projection scheme!        |
+|     The real-space optimization is not efficient for small cells and it     |
+|     is also less accurate ...                                               |
+|     Therefore, set LREAL=.FALSE. in the INCAR file.                         |
+|                                                                             |
+ -----------------------------------------------------------------------------
+
+ LDA part: xc-table for Pade appr. of Perdew
+ -----------------------------------------------------------------------------
+|                                                                             |
+|           W    W    AA    RRRRR   N    N  II  N    N   GGGG   !!!           |
+|           W    W   A  A   R    R  NN   N  II  NN   N  G    G  !!!           |
+|           W    W  A    A  R    R  N N  N  II  N N  N  G       !!!           |
+|           W WW W  AAAAAA  RRRRR   N  N N  II  N  N N  G  GGG   !            |
+|           WW  WW  A    A  R   R   N   NN  II  N   NN  G    G                |
+|           W    W  A    A  R    R  N    N  II  N    N   GGGG   !!!           |
+|                                                                             |
+|     The distance between some ions is very small. Please check the          |
+|     nearest-neighbor list in the OUTCAR file.                               |
+|     I HOPE YOU KNOW WHAT YOU ARE DOING!                                     |
+|                                                                             |
+ -----------------------------------------------------------------------------
+
+ -----------------------------------------------------------------------------
+|                                                                             |
+|           W    W    AA    RRRRR   N    N  II  N    N   GGGG   !!!           |
+|           W    W   A  A   R    R  NN   N  II  NN   N  G    G  !!!           |
+|           W    W  A    A  R    R  N N  N  II  N N  N  G       !!!           |
+|           W WW W  AAAAAA  RRRRR   N  N N  II  N  N N  G  GGG   !            |
+|           WW  WW  A    A  R   R   N   NN  II  N   NN  G    G                |
+|           W    W  A    A  R    R  N    N  II  N    N   GGGG   !!!           |
+|                                                                             |
+|     The requested file  could not be found or opened for reading            |
+|     k-point information. Automatic k-point generation is used as a          |
+|     fallback, which may lead to unwanted results.                           |
+|                                                                             |
+ -----------------------------------------------------------------------------
+
+ POSCAR, INCAR and KPOINTS ok, starting setup
+ FFT: planning ...
+ WAVECAR not read
+ entering main loop
+       N       E                     dE             d eps       ncg     rms          rms(c)
+DAV:   1     0.578846419551E+01    0.57885E+01   -0.11761E+03    64   0.343E+02
+DAV:   2    -0.235145918504E+01   -0.81399E+01   -0.79051E+01   104   0.368E+01
+DAV:   3    -0.261759208283E+01   -0.26613E+00   -0.26613E+00    96   0.995E+00
+DAV:   4    -0.262456226050E+01   -0.69702E-02   -0.69702E-02   112   0.134E+00
+DAV:   5    -0.262459776951E+01   -0.35509E-04   -0.35509E-04   104   0.104E-01    0.143E+00
+RMM:   6    -0.236720730450E+01    0.25739E+00   -0.11366E-01    65   0.964E-01    0.936E-01
+RMM:   7    -0.214583530079E+01    0.22137E+00   -0.76251E-01   100   0.222E+00    0.286E-01
+RMM:   8    -0.215933451665E+01   -0.13499E-01   -0.48053E-02    70   0.825E-01    0.189E-01
+RMM:   9    -0.213878850165E+01    0.20546E-01   -0.32070E-02    75   0.627E-01    0.754E-02
+RMM:  10    -0.214306579978E+01   -0.42773E-02   -0.73676E-03    72   0.355E-01    0.636E-02
+RMM:  11    -0.214207053549E+01    0.99526E-03   -0.25662E-03    77   0.224E-01    0.341E-02
+RMM:  12    -0.214363381375E+01   -0.15633E-02   -0.10446E-03    71   0.156E-01    0.133E-02
+RMM:  13    -0.214387097391E+01   -0.23716E-03   -0.33442E-04    74   0.988E-02    0.802E-03
+RMM:  14    -0.214408793817E+01   -0.21696E-03   -0.16282E-04    84   0.665E-02    0.256E-03
+RMM:  15    -0.214412270607E+01   -0.34768E-04   -0.63878E-05    88   0.435E-02    0.329E-03
+RMM:  16    -0.214412165605E+01    0.10500E-05   -0.10328E-05    93   0.170E-02    0.444E-03
+RMM:  17    -0.214412995924E+01   -0.83032E-05   -0.54722E-06    75   0.145E-02    0.133E-03
+RMM:  18    -0.214413025538E+01   -0.29613E-06   -0.11815E-06    81   0.698E-03    0.955E-04
+RMM:  19    -0.214413021692E+01    0.38459E-07   -0.30799E-07    91   0.294E-03    0.771E-04
+RMM:  20    -0.214413019014E+01    0.26780E-07   -0.50532E-08    71   0.132E-03    0.372E-04
+RMM:  21    -0.214413018048E+01    0.96556E-08   -0.10166E-08    62   0.710E-04
+   1 F= -.21441302E+01 E0= -.21368291E+01  d E =-.146022E-01

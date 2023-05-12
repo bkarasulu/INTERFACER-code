@@ -1,0 +1,9 @@
+Fri 14 Apr 15:51:50 BST 2023
+
+Calculating the W_surf (surface formation energies / surface area) of the optimised aligned slabs...
+Ebulk_1: -0.047 eV/atom
+Ebulk_2: 0.000 eV/atom
+Wsurf_1 (Li3PS4_010): -26.93 eV/nm^2
+Wsurf_2 (Li_100): -4.91 eV/nm^2
+W_ad (formation energy/area) for the final interface before optimisation: 0.57 eV/nm^2
+W_ad (formation energy/area) for the final optimised interface: 8.80 eV/nm^2

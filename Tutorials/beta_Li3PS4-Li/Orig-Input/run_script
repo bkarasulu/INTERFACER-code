@@ -1,0 +1,20 @@
+export VASP_COMMAND='mpirun -n 128 vasp_std > vasp.out'  #optional, VASP command can be built automatically using the -mpi* options/tags
+
+#~/bin/interfacer-new.py
+
+python3 /home/chem/mssmkc/Group-Share/INTERFACER-code/interfacer-new.py  \
+-i1 ICSD-str/b-Li3PS4-EntryWithCollCode180318.cif -m1 1 0 0 -cr1 2 \
+-i2 ICSD-str/Li-Im3m-EntryWithCollCode44367.cif   -m2 1 0 0 -cr2 6 \
+-kp_sp 0.32 -ec 400 -sig 0.05 \
+-thor  -tsep -tsur -tlay \
+-prog ase -quick \
+-vac_int 1.0 -vac_slab 6.0 -sep 3.0 \
+-sep_init 1.0 -sep_final 3.0 -sep_step 0.25 \
+-hor_steps 0.25 0.25 \
+-mpi --mpiargs='--partition=solbatsims'
+
+
+ # -ase_pot LJ -ase_gstep 1 -ase_fmax 0.01
+ #
+ # -Linit 8 \
+ #

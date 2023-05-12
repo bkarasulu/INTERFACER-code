@@ -5,7 +5,8 @@ import ase
 from ase.visualize import view
 from os import system
 from sys import exit
-import fractions
+#import fractions
+import math
 import ase.build
 #import copy
 #import time
@@ -53,7 +54,8 @@ def rotate_slab(slab):
 	return slab
 
 def lcm(a,b):
-	return (a*b)//fractions.gcd(a,b)
+	#return (a*b)//fractions.gcd(a,b)
+	return (a*b)//math.gcd(a,b)
 
 def get_cut_vectors(miller, atoms_cell):
 	#from miller indicies construct 2 lattice vectors in the required plane
@@ -217,7 +219,7 @@ def reasnoble_slab_angles(Lmax=10,slab=None):
 	def filter_to_snp(abrep,a,b):
 		#gets passed a list of vectors
 		#filtere it down to non-parallel
-		#taling the shortes option
+		#taking the shortes option
 		angtol = 0.000001
 		lentol = 0.000001
 		ahat = a*1.0/np.linalg.norm(a)
@@ -347,11 +349,12 @@ def flip_handedness(atoms):
 	atoms.set_scaled_positions(swsp)
 	return atoms
 
-def match_angles2(slab1_cell, angles1, slab2_cell, angles2, ptol=2.0, Lmax=15):
+def match_angles2(slab1_cell, angles1, slab2_cell, angles2, ptol, Lmax):
 	matches = []
 	for ang1 in angles1:
 		for ang2 in angles2:
 			pd = 100*abs(ang1[0]-ang2[0])/float(ang1[0])
+			#print('Current pd: ',pd)
 			if pd > ptol:
 				continue
 			
@@ -368,6 +371,8 @@ def match_angles2(slab1_cell, angles1, slab2_cell, angles2, ptol=2.0, Lmax=15):
 				if match2:
 					Area = np.linalg.norm(np.cross(a1,a2))*na1*na2
 					theta = 0.5*(ang1[0]+ang2[0])
+					#if theta <0.75: 
+					#print (theta);# continue
 					#print(ang1[0],ang2[0],theta_check1,theta_check2)
 					A1 = (ang1[2][0]*na1,ang1[2][1]*na1,0)
 					A2 = (ang1[3][0]*na2,ang1[3][1]*na2,0)
@@ -488,10 +493,13 @@ def atom_density_check(atoms,slab):
 		print ("number density of slab has changed by %%%.2f"%(pd))
 		#print ("exiting due to change in atom density...")
 
-def find_commensurate_supercell(slab1,slab2,Lmax,Lstep,ptol):
+def find_commensurate_supercell(slab1,slab2,L,Lmax,Lstep,ptol):
 	#loop over Ls increasing util finding a commensurate supercell
 	success = False
-	L = Lstep
+	#L = Lstep
+	print('burda Lmax=',Lmax)
+	print('burda ptol=',ptol)
+
 	while L <= Lmax and success == False:
 		print ("trying with L = %.2f A"%L)
 		angles2 = reasnoble_slab_angles(Lmax=L,slab=slab2)
@@ -514,16 +522,20 @@ def find_commensurate_supercell(slab1,slab2,Lmax,Lstep,ptol):
 def slab_aligner(slab1,slab2,L,Lmax,Lstep,ptol,thickness,atoms1,atoms2):
         #find and repeat slabs as specified,
         #One should use only 1 layer for a layer convergence test.
-        choice = find_commensurate_supercell(slab1,slab2,Lmax,Lstep,ptol)
+        print('surda lmax',Lmax, L)
+
+        choice = find_commensurate_supercell(slab1,slab2,L,Lmax,Lstep,ptol)
         crep = np.ceil(abs(thickness/np.dot(slab1.cell[2],(0,0,1)))) #This does not work properly, doesn't give the thickness desired by the user!!
         #crep=1
         #crep=  np.ceil((args.thickness/get_thickness(slab1)))
-        slab1 = cut_cell(slab1,choice[2],choice[3],(0,0,crep))
+        #slab1 = cut_cell(slab1,choice[2],choice[3],(0,0,crep))
+        slab1 = cut_cell(slab1,choice[2],choice[3],(0,0,1))
         slab1 = square_slab(slab1)
         crep = np.ceil(abs(thickness/np.dot(slab2.cell[2],(0,0,1))))
         #crep=1
         #crep=  np.ceil((args.thickness/get_thickness(slab2)))
-        slab2 = cut_cell(slab2,choice[4],choice[5],(0,0,crep))
+        #slab2 = cut_cell(slab2,choice[4],choice[5],(0,0,crep))
+        slab2 = cut_cell(slab2,choice[4],choice[5],(0,0,1))	
         slab2 = square_slab(slab2)
 
         #rotate slab2 so that it is alligned with slab1

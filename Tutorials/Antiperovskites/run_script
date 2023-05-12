@@ -1,0 +1,7 @@
+#export VASP_COMMAND='mpirun -n 128 vasp_std > vasp.out'
+
+
+python3 ~/bin/interfacer-new.py -i1 Coll_Na/na3ocl.cif  -m1 1 0 0 -i2 Coll_Na/Experimental/Na_Im-3m_mp-127.res -m2 1 0 0 -cr1 4 -cr2 6 -kp_sp 0.5 -ec 400 -sig 0.10 -vac_int 2.0 -vac_slab 6.0 -sep 3.0 -Linit 8 -prog vasp  -np 120 -mpi -sep_init 2.0 -sep_final 3.5 -sep_step 0.5  -tsur -tsep #-thor  #-tsep -tsur #-gamma  # -prog ase -quick -tsur #-tlay   # -thor  # -ase_pot LJ -ase_gstep 1 -ase_fmax 0.01 na3ocl.cif
+
+
+#--miller_list='[(1,1,1),(1,1,0),(1,0,0),(0,1,0)]' # -mlist "[1 1 1], [1 1 0], [1 0 0],[0 1 0]"

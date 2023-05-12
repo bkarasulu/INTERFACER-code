@@ -28,7 +28,7 @@ from tools.external import *
 #from tools.analysis import *
 
 
-def get_thickness(atoms):
+def get_thickness(atoms): #replace cell[2][2] or vol/surf_area (better)
         zcoords=[at.position[2] for at in atoms]
         print (max(zcoords)-min(zcoords))
         return max(zcoords)-min(zcoords)

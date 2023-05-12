@@ -23,7 +23,7 @@ from ase.geometry import find_mic  #min dist through PBC using the minimum-image
 from ase.constraints import FixAtoms
 #from ase.spacegroup import crystal
 #import ase.build.tools
-
+ 
 
 #Import other functions from the INTERFACER package
 from tools.builder import *
@@ -37,6 +37,7 @@ TODO:
 -Name the interface and sla1/2-aligned folders with proper naming, e.g. Na_111-Xlayers and Na_111-Na3Ocl_100 (-sep_3A)
 
 -Check output slab1_aligned1/2.vasp, the structures used in calculations are correct but the printed ones do not look good for Li3PS4-LiNbO3 interfaces. (ASE related)
+-Surpress too detailed printing (unless -v // --verb is switched on) in slab/interface building (build.py)
 
 -CHECK energy calculations and picking the most stable surface/interface (lowest/highest?)
 - FIX the reading of Miller indices from user input in args.miller_list
@@ -136,7 +137,8 @@ def check_surfaces(atoms, miller_list,vac,Ebulk,creps):
                 Eslab1=x[0]
                 #-ve / +ve
                 Ws1=(Eslab1-len(slab1)*Ebulk)/2/surf_area(slab1)/0.01 #A2 to nm2 #Normally this is defined with a +ve sign, here we do it with -ve on purpose to determine the lowest (i.e. highest) Wad, converted back to +ve at the end.
-                str1+='%s (%s_%d%d%d): %.2f eV/nm^2\n' % ('W_surf ', slab1.get_chemical_formula(empirical=1),mil[0],mil[1],mil[2],Ws1)
+                #TODO:Add surface energy
+                str1+='%s (%s_%d%d%d): %.2f eV/nm^2 = %.2f J/m^2\n' % ('W_surf ', slab1.get_chemical_formula(empirical=1),mil[0],mil[1],mil[2],Ws1,Ws1*cfactor)
                 if i==0 or Ws1<min_Ws: min_Ws=Ws1; min_mil=mil;min_slab=slab1.copy()
                 #outf.writelines(str1)
                 #print (str1);stdout.flush()
@@ -151,14 +153,16 @@ def check_surfaces(atoms, miller_list,vac,Ebulk,creps):
 #(slab1.get_chemical_formula(empirical=1),mil[0],mil[1],mil[2])
 
         print(str1);stdout.flush()
-        Ws1=-Ws1 #convert back to +ve surface formation energy
-        print('check_surfaces: Minimum-energy surface for material %s is %s with %d atoms and W_surf=%.2f eV'%(min_slab.get_chemical_formula(empirical=1),min_mil,min_slab.get_global_number_of_atoms(),-min_Ws));stdout.flush()
+        #Ws1=-Ws1 #convert back to +ve surface formation energy
+        Ws1=-min_Ws #convert back to +ve surface formation energy
+        print('check_surfaces: Minimum-energy surface for material %s is %s with %d atoms and W_surf=%.2f eV'%(min_slab.get_chemical_formula(empirical=1),min_mil,min_slab.get_global_number_of_atoms(),Ws1));stdout.flush()
 
         #slab1=min_slab.copy()
         min_slab.set_calculator(calc)
         return Ws1, min_slab,calc,min_mil
 
-def conv_layers(atoms,vac=2.0,ifPlot=0,ifPrim=False, Etol=1e-2,view=0,lay_min=0,lay_max=5):#layer convergence test (Input atoms with a calc object). 
+#def conv_layers(atoms,vac=2.0,ifPlot=0,ifPrim=False, Etol=1e-2,view=0,lay_min=0,lay_max=5):#layer convergence test (Input atoms with a calc object). 
+def conv_layers(atoms,vac=2.0,ifPlot=0,ifPrim=False, Etol=1e-2,view=0,lay_min=0,lay_max=5):#layer convergence test (Input atoms with a calc object).
         #print "Convergence of E/atom vs. #layers"
         #TODO: Take from user
         #Etol=1e-2 #eV/atom
@@ -174,7 +178,7 @@ def conv_layers(atoms,vac=2.0,ifPlot=0,ifPrim=False, Etol=1e-2,view=0,lay_min=0,
 
         #find the primitive cells to reduce comp. efforts.
         if ifPrim: atoms=find_prim(atoms);atoms.set_calculator(calc)
-        
+
         atoms.center(vacuum=vac, axis=2)
         #nAt=atoms.get_global_number_of_atoms()
         #atoms.set_calculator(calc)
@@ -204,11 +208,85 @@ def conv_layers(atoms,vac=2.0,ifPlot=0,ifPrim=False, Etol=1e-2,view=0,lay_min=0,
                 #Writing layer steps
                 if i==lay_min: app=0 #append
                 else:app=1
-                if args.prog=="castep":ase.io.write("OUTPUT/%s-layer.cell"%(name),atoms,format='castep-cell',append=app); 
+                if args.prog=="castep":ase.io.write("OUTPUT/%s-layer.cell"%(name),atoms,format='castep-cell',append=app);
                 elif args.prog=="vasp":ase.io.write("OUTPUT/%s-layer.vasp"%(name),atoms,format='vasp-xdatcar',append=app);
-                elif args.prog=="ase": ase.io.write("OUTPUT/%s-layer.xyz" %(name),atoms,format='extxyz',append=app);      
-
+                elif args.prog=="ase": ase.io.write("OUTPUT/%s-layer.xyz" %(name),atoms,format='extxyz',append=app);
                 if i!=0 and abs(E[i]-E[i-1]) <= Etol:
+                       #print('Layer thickness of %d converged to %.3f eV'%(Etol);stdout.flush()
+                       flag=1
+                       break
+                i += 1
+
+        if flag:
+               print("conv_layers: E/atom converged to %.2e eV with %d layers."%(Etol,layers[-1]));stdout.flush()
+        else:
+               print('conv_layers: Layer thickness not converged to %.2e eV within %d layers '%(Etol,layers[-1]));stdout.flush()
+
+        if ifPlot: #Do plotting of E/atom vs. #layers
+                #print(layers[1:],E[1:])
+                plt.plot(layers[1:],E[1:], 'ko-')
+                plt.xlabel('Number of layers')
+                plt.ylabel('Energy per atom (eV/atom)')
+                plt.savefig('OUTPUT/conv_layers.png')
+                #plt.show()
+
+        return layers[-1],E[-1]*nAt,atoms
+
+def conv_layers_new(mil,atoms,vac=2.0,ifPlot=1,ifPrim=False, Etol=1e-2,view=0,lay_min=0,lay_max=5):#layer convergence test (Input atoms with a calc object).         
+        print ("Convergence of E/atom vs. #layers")
+        #TODO: Take from user
+        #Etol=1e-2 #eV/atom
+        #Ftol=5e-2 #eV/Angstroem
+        #Estr=0.1 #GPa
+
+        #Initial values
+        E=[0]; F=[0]; S=[0]
+        name=atoms.name
+        #name=atoms.get_chemical_formula(empirical=1)
+        name="%s_%d%d%d"%(atoms.get_chemical_formula(empirical=1),mil[0],mil[1],mil[2])
+
+        atoms_orig=atoms.copy()
+        calc=atoms.get_calculator()
+
+        #find the primitive cells to reduce comp. efforts.
+        if ifPrim: atoms=find_prim(atoms);atoms.set_calculator(calc)
+        
+        atoms.center(vacuum=vac, axis=2)
+        #nAt=atoms.get_global_number_of_atoms()
+        #atoms.set_calculator(calc)
+        #E.append(atoms.get_potential_energy()/nAt)
+        i=lay_min;layers=[1]
+        flag=0 #converged?
+        while  i<=lay_max:
+                layers.append(1+1*i) #increase 2 layers at a time
+                #atoms=atoms_orig.copy()
+                #atoms=atoms.repeat((1,1,layers[-1]))
+                #atoms.center(vacuum=vac, axis=2)
+
+                #atoms.set_calculator(calc)
+                nAt=atoms.get_global_number_of_atoms()
+                slab = make_slab(mil,atoms,repeat=(1,1,i+1),square=False)
+                slab.center(vacuum=vac, axis=2)
+
+                if args.prog=='castep':x=call_castep(slab,typ="sp",dipolCorr='sc',name='CASTEP-tmp/%s_%d-layer'%(name,layers[-1]),ENCUT=ecut,KPspacing=KP,PP=pp) #KPgrid='4 4 1'
+                elif args.prog=='vasp':x=call_vasp(slab,typ="sp",dipolCorr='sc',name='VASP-tmp/%s_%d-layer'%(name,layers[-1]),ENCUT=ecut,KPspacing=KP,xc=xc,magmom=args.magmoms,sigma=sigma,exe=exe)
+                elif args.prog=='ase':x=call_ase(slab,ctype=args.ase_pot,fmax=args.ase_fmax,steps=args.ase_gsteps,opt=0)
+                slab=x[-1]
+                Ecurr=x[0]
+                #E.append(atoms.get_potential_energy()/nAt)
+                E.append(Ecurr/nAt)
+                print("Iter. #%d, #layers: %d, #atoms: %d "%(i+1,layers[-1],nAt));stdout.flush()
+                print("E_total: %.5f; deltaE: %.3e eV/atom; target: %.3e eV."%(E[i],abs(E[i-lay_min+1]-E[i-lay_min]),Etol));stdout.flush()
+                if view: view(slab)
+
+                #Writing layer steps
+                if i==lay_min: app=0 #append
+                else:app=1
+                if args.prog=="castep":ase.io.write("OUTPUT/%s-layer.cell"%(name),slab,format='castep-cell',append=app); 
+                elif args.prog=="vasp":ase.io.write("OUTPUT/%s-layer.vasp"%(name),slab,format='vasp-xdatcar',append=app);
+                elif args.prog=="ase": ase.io.write("OUTPUT/%s-layer.xyz" %(name),slab,format='extxyz',append=app);      
+
+                if i!=0 and abs(E[i-lay_min+1]-E[i-lay_min]) <= Etol:
                        #print('Layer thickness of %d converged to %.3f eV'%(Etol);stdout.flush()
                        flag=1
                        break
@@ -229,7 +307,7 @@ def conv_layers(atoms,vac=2.0,ifPlot=0,ifPrim=False, Etol=1e-2,view=0,lay_min=0,
 
                 
                 
-        return layers[-1],E[-1]*nAt,atoms               
+        return layers[-1],E[-1]*nAt,slab               
 
 
 def convSep(slab1,slab2,vac=None,sep_init=1.5,sep_final=4.0,sep_step=0.5,view=0,ifPlot=1, Etol=1e-2): #Converge the sepration bet ween the two surface slabs (keeping them rigid)
@@ -478,6 +556,8 @@ try:
         ppdirs.sort()
 except: ppdirs=""
 
+cfactor=6.2415093 #eV / nm^2 to J / m^2
+
 if __name__== '__main__':
         #read in arguments
         parser = argparse.ArgumentParser()
@@ -489,12 +569,12 @@ if __name__== '__main__':
         parser.add_argument("-m1","--miller1", default=(1,0,0), nargs="+", type=int)
         parser.add_argument("-m2","--miller2", default=(1,0,0), nargs="+", type=int)
 
-        #Keyowrds related to structure building
+        #Keywords related to structure building
         parser.add_argument("-cr1","--creps1",default=None,type=int,help='Repetitions in c direction (number of layers) for surface model 1')
         parser.add_argument("-cr2","--creps2",default=None,type=int,help='Repetitions in c direction (number of layers) for surface model 2')
-        parser.add_argument("-msd","--max_slab_dimension",default=50, help='max length of cell sides')
+        parser.add_argument("-msd","--max_slab_dimension",default=50, type=float,help='max length of cell sides')
         parser.add_argument("-th","--thickness",default=7,type=float,help='Thickness of the slab (in c-direction), def: 7A')
-        parser.add_argument("-pt","--percentage_tolerance",default=4,help='percentage tolerances for angle and length matching between two slabs')
+        parser.add_argument("-pt","--percentage_tolerance",default=4,type=float,help='percentage tolerances for angle and length matching between two slabs')
         parser.add_argument("-Linit","--initLength",default=3,type=float,help='Initial (minimum) length of surface slabs in a/b direction, def: 3A') #orig def: 5A
         parser.add_argument("-Lstep","--stepLength",default=2,type=float,help='step size for the increasing the length in a/b direction, def: 2A') #orig def: 5A
 
@@ -511,7 +591,7 @@ if __name__== '__main__':
         parser.add_argument('-tlay',"-test_layer", "--convLayers",action="store_true",default=False,help="To run a convergence test on the layer thickness for slab(s) generated. Def: No")
         parser.add_argument('-tsep',"-test_sep", "--convSep",action="store_true",default=False,help="To run a convergence test on the interlayer separation for the interface generated. Def: No")
         parser.add_argument('-thor',"-test_hori", "--test_hori",action="store_true",default=False,help="To run a convergence test on the interlayer separation for the interface generated. Def: No")
-        #TODO: parsing of the miller indices are not working right!! Fix.
+        #TODO: parsing of the miller indices are not working right!! Fix needed; wok with the default value though
         parser.add_argument("-mlist","--miller_list", default=[(1,0,0),(0,1,0),(0,0,1),(1,1,0),(1,1,1)], nargs="*", type=tuple,help='list of Miller indices to check during the surface stability analysis, i.e. --checkSurfs')  #(1,1,1),
         #parser.add_argument("-mlist","--miller_list", default="[1 1 1], [1 1 0], [1 0 0],[0 1 0]", nargs="*", type=str,help='list of Miller indices to check during the surface stability analysis, i.e. --checkSurfs')
         parser.add_argument("-sep_init","--sep_init"  ,default=1.0,type=float,help='Initial interface separation to be used in seperation convergence test (--convSep), def: 1.0 A')
@@ -552,7 +632,7 @@ if __name__== '__main__':
         parser.add_argument('-nn', '--nnodes',type=int, default=1,help="No of nodes to run CASTEP/VASP runs through srun. Def:1")
         parser.add_argument('-mpi','--mpirun', default=False,action='store_true', help='Use mpirun for parallel runs. Default: srun is used')
         parser.add_argument('-vexe','--vexe', type=str,required=False, default='vasp_std',help='Vasp exectuable. Def: vasp_std')
-        parser.add_argument('-mpiargs','--mpiargs', type=str,required=False, default='--partition=solbatsims',help='Vasp exectuable. Def: vasp_std')
+        parser.add_argument('-mpiargs','--mpiargs', type=str,required=False, default='',help='Vasp exectuable. No default value. "--partition=solbatsims" needed on zx81')
 
         #Other general keywords
         parser.add_argument("-dry", "--dry",action="store_true",default=False,help="Make a dry run, do not run CASTEP/VASP calculation. Good for checking the slabs and the interfacing algorithm.")
@@ -563,7 +643,6 @@ if __name__== '__main__':
 
         #TODO: Add the -restart/overwrite options for when bulk1/2,slab1/2 folders exist. 
         #TODO: Also add restart support for the convergence tests!
-
 
 
         args = parser.parse_args()
@@ -636,7 +715,7 @@ if __name__== '__main__':
         #tolerances for creating slabs and matching two slabs as taken from user
         Lmax = args.max_slab_dimension 	#max length of cell sides
         L = args.initLength # initial length
-        Lstep = args.initLength # step size for the increasing the length in a/b direction 
+        Lstep = args.stepLength # step size for the increasing the length in a/b direction 
         T=args.thickness #thickness of slabs
         ptol = args.percentage_tolerance	#percentage tolerances for angle and length matching
 
@@ -798,8 +877,10 @@ if __name__== '__main__':
                 slab2.name="%s_%d%d%d"%(slab2.get_chemical_formula(empirical=1),miller2[0],miller2[1],miller2[2])
                 print ('Running Material 1 (%s)'%(slab1.get_chemical_formula(empirical=1)))
                 nl1,Eslab1,slab1=conv_layers(slab1,vac=args.vac_slab,lay_min=args.lay_min-1,lay_max=args.lay_max-1)#,ifPrim=1)  #Vacuum layer is added automatically within the function.
+                #nl1,Eslab1,slab1=conv_layers(miller1,atoms1,vac=args.vac_slab,lay_min=args.lay_min-1,lay_max=args.lay_max-1)#,ifPrim=1)  #Vacuum layer is added automatically within the function.
                 print ('\nRunning Material 2 (%s)'%(slab2.get_chemical_formula(empirical=1)))
                 nl2,Eslab2,slab2=conv_layers(slab2,vac=args.vac_slab,lay_min=args.lay_min-1,lay_max=args.lay_max-1)#,ifPrim=1)  #Vacuum layer is added automatically within the function.
+                #nl2,Eslab2,slab2=conv_layers(miller2,atoms2,vac=args.vac_slab,lay_min=args.lay_min-1,lay_max=args.lay_max-1)#,ifPrim=1)  #Vacuum layer is added automatically within the function.
 
                 #TODO: complete this!!!
                 print('Minimum-energy thickness (creps):');stdout.flush()
@@ -808,7 +889,7 @@ if __name__== '__main__':
                 creps1=nl1
                 creps2=nl2
 
-
+        #!!! Need to re-activate this!
         if 0: #to calculate energies/structures of the initial slabs (before alignment). NOT NEEDED
                 print("Pre-optimizing the initial slabs (before alignment).");stdout.flush()
                 if 1: #to add vacuum to the slabs (needed) 
@@ -850,6 +931,10 @@ if __name__== '__main__':
                 slab2_vac=slab2
                 slab1_vac.center(vacuum=args.vac_slab, axis=2) #TODO: add vacuum
                 slab2_vac.center(vacuum=args.vac_slab, axis=2)
+
+        if args.prog=="castep":ase.io.write("OUTPUT/slab1_pre-align.cell",slab1.repeat((1,1,1)),format='castep-cell');  ase.io.write("OUTPUT/slab2_pre-align.cell",slab2.repeat((1,1,1)),format='castep-cell')
+        elif args.prog=="vasp":ase.io.write("OUTPUT/slab1_pre-align.vasp",slab1.repeat((1,1,1)),format='vasp',vasp5=1);  ase.io.write("OUTPUT/slab2_pre-align.vasp",slab2.repeat((1,1,1)),format='vasp',vasp5=1)
+        elif args.prog=="ase":ase.io.write("OUTPUT/slab1_pre-align.xyz",slab1.repeat((1,1,1)),format='extxyz');  ase.io.write("OUTPUT/slab2_pre-align.xyz",slab2.repeat((1,1,1)),format='extxyz')
 
 
         print("\nMisfit (mu) of slabs 1 and 2 (before alignment): %.2f%%"%(misfit(slab1,slab2)*100));stdout.flush()#,ifPlot=1)
@@ -960,8 +1045,8 @@ if __name__== '__main__':
                 str1='\nCalculating the W_surf (surface formation energies / surface area) of the optimised aligned slabs...\n'
                 str1+='%s: %.3f eV/atom\n' % ('Ebulk_1',Ebulk1)
                 str1+='%s: %.3f eV/atom\n' % ('Ebulk_2', Ebulk2)
-                str1+='%s (%s_%d%d%d): %.2f eV/nm^2\n' % ('Wsurf_1', slab1.get_chemical_formula(empirical=1),miller1[0],miller1[1],miller1[2],Ws1)
-                str1+='%s (%s_%d%d%d): %.2f eV/nm^2\n' % ('Wsurf_2', slab2.get_chemical_formula(empirical=1),miller2[0],miller2[1],miller2[2],Ws2)
+                str1+='%s (%s_%d%d%d): %.2f eV/nm^2 = %.2f J/m^2\n' % ('Wsurf_1', slab1.get_chemical_formula(empirical=1),miller1[0],miller1[1],miller1[2],Ws1,Ws1*cfactor)
+                str1+='%s (%s_%d%d%d): %.2f eV/nm^2 = %.2f J/m^2\n' % ('Wsurf_2', slab2.get_chemical_formula(empirical=1),miller2[0],miller2[1],miller2[2],Ws2,Ws2*cfactor)
 
                 print(str1);stdout.flush()
                 outf.writelines(str1)
@@ -1067,8 +1152,10 @@ if __name__== '__main__':
                 Eint=x[0]
 
                 #-ve sign???
-                Wad=(Eslab1+Eslab2-Eint)/surf_area(interface)/0.01 #A2 to nm2 #check the formula Ea isntead of Wsurf??
-                str1='W_ad (formation energy/area) for the final optimised interface: %.2f eV/nm^2\n'%Wad
+                #Wad=(Eslab1+Eslab2-Eint)/surf_area(interface)/0.01 #A2 to nm2 #check the formula Ea isntead of Wsurf??
+                Wad=(Eint-Eslab1-Eslab2)/surf_area(interface)/0.01 #A2 to nm2 #check the formula Ea isntead of Wsurf??
+                #cfactor=6.2415093 #eV / nm^2 to J / m^2
+                str1='W_ad (formation energy/area) for the final optimised interface: %.2f eV/nm^2 = %.2f J/m^2\n'%(Wad,Wad*cfactor)
                 print(str1);stdout.flush()
                 outf.writelines(str1)
 

@@ -1,0 +1,193 @@
+Reading data from Coll_Na/na3ocl.cif and Coll_Na/Experimental/Na_Im-3m_mp-127.res.
+Structure 1: ClNa3O   with fu=1 and CUB(a=4.496) lattice
+Structure 2: Na       with fu=2 and CUB(a=4.17262) lattice
+Cleaning previous output structures in OUTPUT...
+./VASP-tmp/bulk1 was located, reading data...
+bulk2 was located, reading data...
+
+Checking the minimum-energy surface for Material 1 (ClNa3O), considering the Miller indices: [(1, 0, 0), (0, 1, 0), (0, 0, 1), (1, 1, 0), (1, 1, 1)]
+Doing the (1,0,0) surface...
+VASP command:  mpirun -n 120 vasp_std
+A previous calculation found in VASP-tmp/ClNa3O_100
+/storage/mssmkc_grp/Shared/Projects/INTERFACES-related/DENEMELER/Saiful-AntiPerovskites/VASP-tmp/ClNa3O_100
+Previous run was read successfully, checking if converged...
+Calculation has converged, reading data from vasprun.xml/OUTCAR... 
+Doing the (0,1,0) surface...
+VASP command:  mpirun -n 120 vasp_std
+A previous calculation found in VASP-tmp/ClNa3O_010
+/storage/mssmkc_grp/Shared/Projects/INTERFACES-related/DENEMELER/Saiful-AntiPerovskites/VASP-tmp/ClNa3O_010
+Previous run was read successfully, checking if converged...
+Calculation has converged, reading data from vasprun.xml/OUTCAR... 
+Doing the (0,0,1) surface...
+VASP command:  mpirun -n 120 vasp_std
+A previous calculation found in VASP-tmp/ClNa3O_001
+/storage/mssmkc_grp/Shared/Projects/INTERFACES-related/DENEMELER/Saiful-AntiPerovskites/VASP-tmp/ClNa3O_001
+Previous run was read successfully, checking if converged...
+Calculation has converged, reading data from vasprun.xml/OUTCAR... 
+Doing the (1,1,0) surface...
+s is {0, 1}
+0 1 1 1 1
+e is [1.0, -1.0, 0]
+VASP command:  mpirun -n 120 vasp_std
+A previous calculation found in VASP-tmp/ClNa3O_110
+/storage/mssmkc_grp/Shared/Projects/INTERFACES-related/DENEMELER/Saiful-AntiPerovskites/VASP-tmp/ClNa3O_110
+Previous run was read successfully, checking if converged...
+Calculation has converged, reading data from vasprun.xml/OUTCAR... 
+Doing the (1,1,1) surface...
+VASP command:  mpirun -n 120 vasp_std
+A previous calculation found in VASP-tmp/ClNa3O_111
+/storage/mssmkc_grp/Shared/Projects/INTERFACES-related/DENEMELER/Saiful-AntiPerovskites/VASP-tmp/ClNa3O_111
+Previous run was read successfully, checking if converged...
+Calculation has converged, reading data from vasprun.xml/OUTCAR... 
+W_surf  (ClNa3O_100): 2.36 eV/nm^2
+W_surf  (ClNa3O_010): 2.36 eV/nm^2
+W_surf  (ClNa3O_001): 2.36 eV/nm^2
+W_surf  (ClNa3O_110): 8.63 eV/nm^2
+W_surf  (ClNa3O_111): 7.71 eV/nm^2
+
+check_surfaces: Minimum-energy surface for material ClNa3O is (1, 1, 0) with 20 atoms and W_surf=8.63 eV
+
+Checking the minimum-energy surface for Material 2 (Na), considering the Miller indices: [(1, 0, 0), (0, 1, 0), (0, 0, 1), (1, 1, 0), (1, 1, 1)]
+Doing the (1,0,0) surface...
+VASP command:  mpirun -n 120 vasp_std
+A previous calculation found in VASP-tmp/Na_100
+/storage/mssmkc_grp/Shared/Projects/INTERFACES-related/DENEMELER/Saiful-AntiPerovskites/VASP-tmp/Na_100
+Previous run was read successfully, checking if converged...
+Calculation has converged, reading data from vasprun.xml/OUTCAR... 
+Doing the (0,1,0) surface...
+VASP command:  mpirun -n 120 vasp_std
+A previous calculation found in VASP-tmp/Na_010
+/storage/mssmkc_grp/Shared/Projects/INTERFACES-related/DENEMELER/Saiful-AntiPerovskites/VASP-tmp/Na_010
+Previous run was read successfully, checking if converged...
+Calculation has converged, reading data from vasprun.xml/OUTCAR... 
+Doing the (0,0,1) surface...
+VASP command:  mpirun -n 120 vasp_std
+A previous calculation found in VASP-tmp/Na_001
+/storage/mssmkc_grp/Shared/Projects/INTERFACES-related/DENEMELER/Saiful-AntiPerovskites/VASP-tmp/Na_001
+Previous run was read successfully, checking if converged...
+Calculation has converged, reading data from vasprun.xml/OUTCAR... 
+Doing the (1,1,0) surface...
+s is {0, 1}
+0 1 1 1 1
+e is [1.0, -1.0, 0]
+VASP command:  mpirun -n 120 vasp_std
+A previous calculation found in VASP-tmp/Na_110
+/storage/mssmkc_grp/Shared/Projects/INTERFACES-related/DENEMELER/Saiful-AntiPerovskites/VASP-tmp/Na_110
+Previous run was read successfully, checking if converged...
+Calculation has converged, reading data from vasprun.xml/OUTCAR... 
+Doing the (1,1,1) surface...
+VASP command:  mpirun -n 120 vasp_std
+A previous calculation found in VASP-tmp/Na_111
+/storage/mssmkc_grp/Shared/Projects/INTERFACES-related/DENEMELER/Saiful-AntiPerovskites/VASP-tmp/Na_111
+Previous run was read successfully, checking if converged...
+Calculation has converged, reading data from vasprun.xml/OUTCAR... 
+W_surf  (Na_100): -0.86 eV/nm^2
+W_surf  (Na_010): -0.86 eV/nm^2
+W_surf  (Na_001): -0.86 eV/nm^2
+W_surf  (Na_110): 0.33 eV/nm^2
+W_surf  (Na_111): 1.00 eV/nm^2
+
+check_surfaces: Minimum-energy surface for material Na is (1, 1, 1) with 12 atoms and W_surf=1.00 eV
+
+Misfit (mu) of slabs 1 and 2 (before alignment): 4.08%
+
+Aligning the two slabs...
+trying with L = 8.00 A
+comparing 4 possible pairs
+selecting best match based on Area and sin(theta) from 0 choices
+trying with L = 16.00 A
+comparing 352 possible pairs
+selecting best match based on Area and sin(theta) from 0 choices
+trying with L = 24.00 A
+comparing 2576 possible pairs
+selecting best match based on Area and sin(theta) from 0 choices
+trying with L = 32.00 A
+comparing 20449 possible pairs
+selecting best match based on Area and sin(theta) from 36 choices
+number density of slab has changed by %45.26
+number density of slab has changed by %42.61
+
+Misfit (mu) of slabs 1 and 2 (after alignment): 1.81%
+Optimization terminated successfully.
+         Current function value: 3.714142
+         Iterations: 321
+         Function evaluations: 496
+
+Optimizing the slabs 1 and 2 (after alignment).
+VASP command:  mpirun -n 120 vasp_std
+A previous calculation found in slab1-aligned
+/storage/mssmkc_grp/Shared/Projects/INTERFACES-related/DENEMELER/Saiful-AntiPerovskites/slab1-aligned
+Previous run was read successfully, checking if converged...
+Calculation has converged, reading data from vasprun.xml/OUTCAR... 
+VASP command:  mpirun -n 120 vasp_std
+A previous calculation found in slab2-aligned
+/storage/mssmkc_grp/Shared/Projects/INTERFACES-related/DENEMELER/Saiful-AntiPerovskites/slab2-aligned
+Previous run was read successfully, checking if converged...
+Calculation has converged, reading data from vasprun.xml/OUTCAR... 
+
+Calculating the W_surf (surface formation energies / surface area) of the optimised aligned slabs...
+Ebulk_1: -3.636 eV/atom
+Ebulk_2: -1.282 eV/atom
+Wsurf_1 (ClNa3O_110): 5.70 eV/nm^2
+Wsurf_2 (Na_111): 1.07 eV/nm^2
+
+Optimization terminated successfully.
+         Current function value: 0.000000
+         Iterations: 225
+         Function evaluations: 361
+
+
+Finding the optimal interface (interlayer) separation.
+Doing the 2.00 A separation between two layers
+Optimization terminated successfully.
+         Current function value: 1.778368
+         Iterations: 322
+         Function evaluations: 539
+VASP command:  mpirun -n 120 vasp_std
+A previous calculation found in VASP-tmp/interface-sep_2.00A
+/storage/mssmkc_grp/Shared/Projects/INTERFACES-related/DENEMELER/Saiful-AntiPerovskites/VASP-tmp/interface-sep_2.00A
+Previous run was read successfully, checking if converged...
+Calculation has converged, reading data from vasprun.xml/OUTCAR... 
+Iter. #1, Seperation: 2.00 A, E / atom : -2.71537 eV, z-thickness: 28.88 A 
+
+Doing the 2.50 A separation between two layers
+Optimization terminated successfully.
+         Current function value: 0.000001
+         Iterations: 231
+         Function evaluations: 371
+VASP command:  mpirun -n 120 vasp_std
+A previous calculation found in VASP-tmp/interface-sep_2.50A
+/storage/mssmkc_grp/Shared/Projects/INTERFACES-related/DENEMELER/Saiful-AntiPerovskites/VASP-tmp/interface-sep_2.50A
+Previous run was read successfully, checking if converged...
+Calculation has converged, reading data from vasprun.xml/OUTCAR... 
+Iter. #2, Seperation: 2.50 A, E / atom : -2.71939 eV, z-thickness: 29.95 A 
+
+Doing the 3.00 A separation between two layers
+Optimization terminated successfully.
+         Current function value: 0.000001
+         Iterations: 233
+         Function evaluations: 377
+VASP command:  mpirun -n 120 vasp_std
+A previous calculation found in VASP-tmp/interface-sep_3.00A
+/storage/mssmkc_grp/Shared/Projects/INTERFACES-related/DENEMELER/Saiful-AntiPerovskites/VASP-tmp/interface-sep_3.00A
+Previous run was read successfully, checking if converged...
+Calculation has converged, reading data from vasprun.xml/OUTCAR... 
+Iter. #3, Seperation: 3.00 A, E / atom : -2.71535 eV, z-thickness: 30.98 A 
+
+
+convSep: Minimum-energy separation is 2.50 A with E= -2.71939 eV
+
+ Single point run for the interface geometry.
+VASP command:  mpirun -n 120 vasp_std
+Previous run was read successfully, checking if converged...
+Multiple KPOINTS: VASP standard implementation (vasp_std) is activated.
+W_ad (formation energy/area) for the final interface before optimisation: 2.82 eV/nm^2
+
+
+Optimizing the final interface geometry.
+VASP command:  mpirun -n 120 vasp_std
+Previous run was read successfully, checking if converged...
+Multiple KPOINTS: VASP standard implementation (vasp_std) is activated.
+W_ad (formation energy/area) for the final optimised interface: 10.97 eV/nm^2
+
+Elapsed time: 143564.74 sec.
