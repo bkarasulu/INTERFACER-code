@@ -3,6 +3,7 @@ from __future__ import print_function
 import numpy as np
 import argparse,math, os.path,fractions,time
 import matplotlib.pyplot as plt
+import ast
 
 from os import system,popen,chdir,getcwd,getenv,putenv,listdir
 from re import search
@@ -588,6 +589,10 @@ if __name__== '__main__':
         parser.add_argument('-niggli','--niggli', default=False,action='store_true', help='Niggli reduce the resulting interface. Def: no')
         parser.add_argument("-flip2", "--flip2",action="store_true",default=False,help="Flip the slab2 upside-down.")
         parser.add_argument("-sym_slabs", "--symSlabs",action="store_true",default=False,help="Use to create symmetric surface slabs. Def: no")
+        parser.add_argument("-cp1", "--chem_pots1", default=None, type=str, help="Chemical potentials for the slab1, e.g. '{'Fe':-3.0, 'O':-2.0}' (in eV). Def: No")
+        parser.add_argument("-cp2", "--chem_pots2", default=None, type=str, help="Chemical potentials for the slab2, e.g. '{'Fe':-3.0, 'O':-2.0}' (in eV). Def: No")
+        parser.add_argument("-decomps1", "--decomps1", default=None, type=str, nargs="+", help="list of deomposition structure files of slab1. Def: No")
+        parser.add_argument("-decomps2", "--decomps2", default=None, type=str, nargs="+", help="list of deomposition structure files of slab2. Def: No")
 
         #Convergence tests related keywords:
         parser.add_argument('-tsur',"-test_surf", "--checkSurfs",action="store_true",default=False,help="To check the stbility of different surfaces for the given materials. Def: No")
@@ -915,9 +920,9 @@ if __name__== '__main__':
         if args.symSlabs:
                 # if symmSurf argument is True, obtain list of symmetric syrfaces for given Miller indices
                 # check whether slab1 is already symmetric
-                rotational_symmetry = get_symmetry(slab1, symprec=1e-5)["rotations"]
+                rotational_symmetry = get_symmetry((slab1.cell, slab1.get_scaled_positions(), slab1.get_atomic_numbers()), symprec=1e-5)["rotations"]
                 z_rotational_operations = np.stack(rotational_symmetry)
-                
+
                 el_bulk1 = atoms1.get_atomic_numbers()
                 if all(el == el_bulk1[0] for el in el_bulk1):
                         print('Bulk1 is already symmetric')
@@ -952,17 +957,16 @@ if __name__== '__main__':
                         else:
                                 typ = "geom"
                                 opt = True
-                        print(typ, opt)
-                        if 0: #to calculate energies/structures of the initial slabs (before alignment). NOT NEEDED
+                        if 1: #to calculate energies/structures of the initial slabs (before alignment). NOT NEEDED
                                 print("Pre-optimizing the initial slabs (before alignment).");stdout.flush()
                                 if 1: #to add vacuum to the slabs (needed) 
                                         slab1.center(vacuum=args.vac_slab, axis=2)
                                         slab2.center(vacuum=args.vac_slab, axis=2)
 
                                 # for vasp calculations, checks whether folder slab1-pre already exists and takes the output from there
-                                if args.prog=='vasp' and os.path.exists("slab1-pre/OUTCAR"):
+                                if args.prog=='vasp' and os.path.exists("slab1-pre/vasprun.xml"):
                                         print ("slab1-pre was located, reading data...");stdout.flush()
-                                        slab1=ase.io.read("slab1-pre/OUTCAR",index=-1)
+                                        slab1=ase.io.read("slab1-pre/vasprun.xml",index=-1)
                                         x=[slab1.get_potential_energy(),slab1]
                                 # otherwise, calculates does a geometry optimization of slab1
                                 else:
@@ -977,9 +981,9 @@ if __name__== '__main__':
                                 Eslab1=x[0]
 
                                 # for vasp calculations, checks whether folder slab2-pre already exists and takes the output from there 
-                                if args.prog=='vasp' and os.path.exists("slab2-pre/OUTCAR"):
+                                if args.prog=='vasp' and os.path.exists("slab2-pre/vasprun.xml"):
                                         print ("slab2-pre was located, reading data...");stdout.flush()
-                                        slab2=ase.io.read("slab2-pre/OUTCAR",index=-1)
+                                        slab2=ase.io.read("slab2-pre/vasprun.xml",index=-1)
                                         x=[slab2.get_potential_energy(),slab2]
                                 # otherwise, calculates does a geometry optimization of slab2
                                 else:
@@ -1013,8 +1017,31 @@ if __name__== '__main__':
 
 
                         print("\nMisfit (mu) of slabs 1 and 2 (before alignment): %.2f%%"%(misfit(slab1,slab2)*100));stdout.flush()#,ifPlot=1)
-                        print
-                        #exit()
+                        
+                        # compute surface formation energyes of the slabs
+                        if args.chem_pots1:
+                                # convert the string to a dictionary
+                                chem_pots1 = ast.literal_eval(args.chem_pots1)
+                                cp1 = {k: float(v) for k, v in chem_pots1.items()}
+                                SFE_slab1 = calculate_SFE(slab1, atoms1, chem_pots=cp1)
+                        elif args.decomps1:
+                                decomps1 = [ase.io.read(d) for d in args.decomps1]
+                                SFE_slab1 = calculate_SFE(slab1, atoms1, decomps=decomps1)
+                        else:
+                                SFE_slab1 = calculate_SFE(slab1, atoms1)
+                        print("Surface formation energy of %s: %.2f eV/atom"%(slab1.name, SFE_slab1));stdout.flush()
+
+                        if args.chem_pots2:
+                                chem_pots2 = ast.literal_eval(args.chem_pots2)
+                                cp2 = {k: float(v) for k, v in chem_pots2.items()}
+                                SFE_slab2 = calculate_SFE(slab2, atoms2, chem_pots=cp2)
+                        elif args.decomps2:
+                                print(args.decomps2)
+                                decomps2 = [ase.io.read(d) for d in args.decomps2]
+                                SFE_slab2 = calculate_SFE(slab2, atoms2, decomps=decomps2)
+                        else:
+                                SFE_slab2 = calculate_SFE(slab2, atoms2)
+                        print("Surface formation energy of %s: %.2f eV/atom"%(slab2.name, SFE_slab2));stdout.flush()
 
 
         ######################

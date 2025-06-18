@@ -262,3 +262,102 @@ def get_interface_energy(slab1,slab2,Ebulk1,Ebulk2,dist=1.0,convLayers=False): #
         
         print(('W_ad before alingment: %.2f eV/nm^2\n'%Wad))
         return Eslab1,Eslab2,Ws1,Ws2,int1#surf_area(int1)
+
+################# functions to determine surface formation energies of symmetric surfaces ###################################
+
+def calculate_chem_pots(bulk, decomps):
+    """Calculate the chemical potential of each species based on the decomposition products.
+    Args:
+        slab (ase.Atoms): The slab structure.
+        decomps (list) : A list of the optimised decomposition products, each as an ase.Atoms object.
+    Returns:
+        np.ndarray: An array of chemical potentials for each element in the bulk structure.
+    """
+    toa_bulk = sorted(set(bulk.symbols))
+    noa_bulk = [bulk.get_chemical_symbols().count(symbol) for symbol in toa_bulk]
+    e_bulk = bulk.get_total_energy() #in eV
+
+    noa_matrix = np.zeros((len(decomps)+1, len(toa_bulk)))
+    noa_matrix[-1] = noa_bulk
+    energies = np.zeros(len(decomps)+1) 
+    energies[-1] = e_bulk
+
+    for i, decomp in enumerate(decomps):
+        toa = sorted(set(decomp.symbols))
+        noa = [decomp.get_chemical_symbols().count(symbol) for symbol in toa]
+        for j, el in enumerate(toa_bulk):
+            ix = np.argwhere(el == np.array(toa))[:,0].tolist()
+            if ix:
+                noa_matrix[i,j] = noa[ix[0]]
+            else:
+                noa_matrix[i,j] = 0
+        e = decomp.get_total_energy() #in eV
+        energies[i] = e 
+
+    cp = np.linalg.solve(noa_matrix, energies)
+    assert (np.allclose(np.dot(noa_matrix, cp), energies)), "Chemical potentials calculation failed."
+    chem_pots = {toa_bulk[i]: cp[i] for i in range(len(toa_bulk))}
+
+    return chem_pots
+
+def calculate_SFE(slab, bulk, decomps=None, chem_pots=None):
+    """Calculate the surface formation energy of a slab structure.
+    Args:
+        slab (ase.Atoms): The slab structure.
+        bulk (ase.Atoms): The bulk structure.
+        decomps (list, optional): A list of the optimised decomposition products, each as an ase.Atoms object.
+        chem_pots (dict, optional): A dictionary of chemical potentials for each element in the slab structure.
+    Returns:
+        float: The surface formation energy in eV/nm^2.
+    """
+      
+    A = np.linalg.norm(np.cross(slab.cell[0], slab.cell[1]))/100 # surface area in nm^2
+
+    E_bulk = bulk.get_potential_energy() # in eV
+    E_slab = slab.get_potential_energy() # in eV
+
+    # get the type of atoms and the number of atoms for each type in the bulk and slab structures
+    toa_bulk = sorted(set(bulk.symbols))
+    toa_slab = sorted(set(slab.symbols))
+    assert toa_bulk == toa_slab or "The bulk and slab structures do not contain the same elements."
+    noa_bulk = [bulk.get_chemical_symbols().count(symbol) for symbol in toa_bulk]
+    noa_slab = [slab.get_chemical_symbols().count(symbol) for symbol in toa_slab]
+    assert [no_el%np.min(noa_bulk) == 0 for no_el in noa_bulk], "The number of atoms in the bulk structure is not a multiple of the formula unit."
+    # calculate the number of formula units in the bulk structure
+    noa_bulk_fu = noa_bulk/np.min(noa_bulk)
+    no_fu_bulk = np.min(noa_bulk)/np.min(noa_bulk_fu)
+    
+    # calculate number of formula units of bulk in the slab
+    fu_all = np.array(noa_slab)/np.array(noa_bulk)
+
+    # if all formula units in the slab are the same, then the slab is stoichiometric 
+    if np.all(fu_all == fu_all[0]):
+        no_fu_bis = int(fu_all[0])          
+        # calculate the surface formation energy
+        SFE = 1/(2*A) * (E_slab - ((E_bulk/no_fu_bulk)*no_fu_bis))
+    # if the slab is not stoichiometric, then we need to calculate the difference number and the chemical potentials
+    else:
+        int_list = fu_all[(fu_all % 1 == 0)]
+        no_fu_bis = np.max(int_list)        # number of formula units of bulk in the slab
+        # calculate the difference in the number of atoms of each type between the slab and the bulk
+        diff = {}
+        for i, symbol in enumerate(toa_bulk):
+            diff[symbol] = noa_slab[i] - noa_bulk[i]
+        # check if chemical potentials or decomposition products are provided to calculate the chemical potentials
+        if chem_pots is not None:
+            if not isinstance(chem_pots, dict):
+                raise ValueError("chem_pots should be a dictionary with chemical potentials for each element in the slab structure.")
+            assert set(chem_pots.keys()) == set(toa_bulk), "The keys of chem_pots do not match the elements in the bulk structure."
+            chem_pots = chem_pots 
+        elif decomps is not None:
+            if not isinstance(decomps, list):
+                raise ValueError("decomps should be a list of optimised decomposition products, each as an ase.Atoms object.")
+            assert len(decomps) == len(toa_slab) - 1, "The number of decomposition products should match the number of elements in the slab structure minus one."
+            chem_pots = calculate_chem_pots(bulk, decomps) # calculate the chemical potential of each species based on the decomposition products
+        else:
+            raise ValueError(f"Slab {slab.name} is not stroichiometric; either chem_pots or decomps needs to be provided to calculate the surface formation energy.")
+        # calculate the surface formation energy of a non-stoichiometric slab
+        SFE = 1/(2*A) * (E_slab - ((E_bulk/no_fu_bulk)*no_fu_bis) - (diff['Cl']*chem_pots['Cl']
+            + diff['Li']*chem_pots['Li'] + diff['P']*chem_pots['P'] + diff['S']*chem_pots['S']))
+    
+    return SFE
