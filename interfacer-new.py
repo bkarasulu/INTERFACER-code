@@ -589,10 +589,12 @@ if __name__== '__main__':
         parser.add_argument('-niggli','--niggli', default=False,action='store_true', help='Niggli reduce the resulting interface. Def: no')
         parser.add_argument("-flip2", "--flip2",action="store_true",default=False,help="Flip the slab2 upside-down.")
         parser.add_argument("-sym_slabs", "--symSlabs",action="store_true",default=False,help="Use to create symmetric surface slabs. Def: no")
+        parser.add_argument("-no_slabs", "--noSlabs",default=1, type=int, help="Number of slabs to be used for interface creation, starting from the most stable slab. Def: 1")
         parser.add_argument("-cp1", "--chem_pots1", default=None, type=str, help="Chemical potentials for the slab1, e.g. '{'Fe':-3.0, 'O':-2.0}' (in eV). Def: No")
         parser.add_argument("-cp2", "--chem_pots2", default=None, type=str, help="Chemical potentials for the slab2, e.g. '{'Fe':-3.0, 'O':-2.0}' (in eV). Def: No")
         parser.add_argument("-decomps1", "--decomps1", default=None, type=str, nargs="+", help="list of deomposition structure files of slab1. Def: No")
         parser.add_argument("-decomps2", "--decomps2", default=None, type=str, nargs="+", help="list of deomposition structure files of slab2. Def: No")
+        parser.add_argument("-surf_only","--surf_only",default=False,action="store_true",help="Use to only calculate the surfaces and exit before the creation of the interfaces. Def: no")
 
         #Convergence tests related keywords:
         parser.add_argument('-tsur',"-test_surf", "--checkSurfs",action="store_true",default=False,help="To check the stbility of different surfaces for the given materials. Def: No")
@@ -918,28 +920,14 @@ if __name__== '__main__':
         surf_list_slab1 = []
         surf_list_slab2 = []
         if args.symSlabs:
-                # if symmSurf argument is True, obtain list of symmetric syrfaces for given Miller indices
-                # check whether slab1 is already symmetric
-                rotational_symmetry = get_symmetry((slab1.cell, slab1.get_scaled_positions(), slab1.get_atomic_numbers()), symprec=1e-5)["rotations"]
-                z_rotational_operations = np.stack(rotational_symmetry)
-
-                el_bulk1 = atoms1.get_atomic_numbers()
-                if all(el == el_bulk1[0] for el in el_bulk1):
-                        print('Bulk1 is already symmetric')
-                        surf_list_slab1.append(slab1)
-                else:
-                        # if not symmetric, find symmetric surface cuts
-                        print('Bulk1 is being symmetrized')
+                if 1:
+                        # find symmetric surface cuts
+                        print('\nBulk1 is being symmetrized')
                         surf_list_slab1 = permute_surface(atoms1, miller1, T, vacuum=args.vac_slab)
                         if len(surf_list_slab1) == 0:
                                 surf_list_slab1.append(slab1)
-                # check whether slab2 is already symmetric
-                el_bulk2 = atoms2.get_atomic_numbers()
-                if all(el == el_bulk2[0] for el in el_bulk2):
-                        print('Bulk2 is already symmetric')
-                        surf_list_slab2.append(slab2)
-                else:
-                        # if not symmetric, find symmetric surface cuts
+                if 1:
+                        # find symmetric surface cuts
                         print('Bulk2 is being symmetrized')
                         surf_list_slab2 = permute_surface(atoms2, miller2, T, vacuum=args.vac_slab)
                         if len(surf_list_slab2) == 0:
@@ -948,108 +936,182 @@ if __name__== '__main__':
                 surf_list_slab1.append(slab1)
                 surf_list_slab2.append(slab2)
 
+        SFE_list_slab1 = []
         for i, slab1 in enumerate(surf_list_slab1):
-                for j, slab2 in enumerate(surf_list_slab2):
-        #!!! Need to re-activate this!
-                        if args.symSlabs:
-                                typ = "sp"
-                                opt = False
-                        else:
-                                typ = "geom"
-                                opt = True
-                        if 1: #to calculate energies/structures of the initial slabs (before alignment). NOT NEEDED
-                                print("Pre-optimizing the initial slabs (before alignment).");stdout.flush()
-                                if 1: #to add vacuum to the slabs (needed) 
-                                        slab1.center(vacuum=args.vac_slab, axis=2)
-                                        slab2.center(vacuum=args.vac_slab, axis=2)
+                if args.symSlabs: 
+                        #calculate energies/structures of the initial slabs (before alignment) if surfaces are symmetric
+                        # does this have to be a geometry optimisation or is a SP enough? Or should the user choose?
 
-                                # for vasp calculations, checks whether folder slab1-pre already exists and takes the output from there
-                                if args.prog=='vasp' and os.path.exists("slab1-pre/vasprun.xml"):
-                                        print ("slab1-pre was located, reading data...");stdout.flush()
-                                        slab1=ase.io.read("slab1-pre/vasprun.xml",index=-1)
-                                        x=[slab1.get_potential_energy(),slab1]
-                                # otherwise, calculates does a geometry optimization of slab1
-                                else:
-                                        slab1.name='slab1_cut%s'%i
-                                        if args.prog=='castep':x=call_castep(slab1,typ=typ,dipolCorr='sc',name='slab1_cut%s-pre'%i,ENCUT=ecut,KPgrid=KPgrid,PP=pp,FixCell=0)
-                                        elif args.prog=='vasp': 
+                        slab1.center(vacuum=args.vac_slab, axis=2)
+
+                        # for vasp calculations, checks whether folder slab1-pre already exists and takes the output from there
+                        if args.prog=='vasp' and os.path.exists("slab1_cut%s-pre/OUTCAR"%i):
+                                print ("slab1-pre was located, reading data...");stdout.flush()
+                                slab1=ase.io.read("slab1_cut%s-pre/OUTCAR"%i,index=-1)
+                                x=[slab1.get_potential_energy(),slab1]
+                        # otherwise, calculates does a geometry optimization of slab1
+                        else:
+                                slab1.name='slab1_cut%s'%i
+                                print("Pre-optimizing %s (before alignment)."%slab1.name);stdout.flush()
+                                if args.prog=='castep':x=call_castep(slab1,typ='geom',dipolCorr='sc',name='slab1_cut%s-pre'%i,ENCUT=ecut,KPgrid=KPgrid,PP=pp,FixCell=0)
+                                elif args.prog=='vasp': 
+                                        if args.pas:pas='bot' 
+                                        else: pas=None
+                                        x=call_vasp(slab1,typ='geom',dipolCorr='sc',name='slab1_cut%s-pre'%i,ENCUT=ecut,KPspacing=KP,KPgrid=KPgrid,FixCell=0,FixVol=0,xc=xc,passivate=pas,magmom=args.magmoms,sigma=sigma,exe=exe)
+                                elif args.prog=='ase':x=call_ase(slab1,ctype=args.ase_pot,fmax=args.ase_fmax,steps=args.ase_gsteps,opt=True)
+                        slab1=x[-1]
+                        Eslab1=x[0]
+
+                #Not originally here. (Helps increase the overlap between surfaces. i.e. lower lattice misfit).
+                niggli=0
+                if niggli: niggli_reduce(slab1);niggli_reduce(slab2)
+
+                if args.prim: slab1=find_prim(slab1);slab2=find_prim(slab2) #does not work.
+
+                if 1: #to add vacuum to the slabs (for demonstration)
+                        slab1_vac=slab1
+                        slab1_vac.center(vacuum=args.vac_slab, axis=2) #TODO: add vacuum
+                        if args.prog=="castep":ase.io.write("OUTPUT/slab1_pre-align_cut%s.cell"%i,slab1.repeat((1,1,1)),format='castep-cell')
+                        elif args.prog=="vasp":ase.io.write("OUTPUT/slab1_pre-align_cut%s.vasp"%i,slab1.repeat((1,1,1)),format='vasp',vasp5=1)
+                        elif args.prog=="ase":ase.io.write("OUTPUT/slab1_pre-align_cut%s.xyz"%i,slab1.repeat((1,1,1)),format='extxyz')
+                
+                # check whether chem_pots or decomps are provided
+                if args.chem_pots1:
+                        chem_pots1 = ast.literal_eval(args.chem_pots1)
+                        cp1 = {k: float(v) for k, v in chem_pots1.items()}
+                        SFE_slab1 = calculate_SFE(slab1, atoms1, chem_pots=cp1)
+                # if decomps1 are provided, check if they have an calculator attached, if not optimise them before calcualting the SFE
+                elif args.decomps1:
+                        decomps1 = []
+                        for no_d, d in enumerate(args.decomps1):
+                                decomp1 = ase.io.read(d)
+                                if decomp1.calc == None:
+                                        decomp1.name = 'decomp1_%s'%no_d
+                                        if args.prog=='castep': x=call_castep(decomp1,typ='geom',dipolCorr='sc',name='decomp1_%s'%no_d,ENCUT=ecut,KPgrid=KPgrid,KPspacing=KP,PP=pp,FixCell=1,hubU=hubU)#,FixList=[1,2]) #Optimizer TPSD or FIRE can be used for fixed cell opts.
+                                        elif args.prog=='vasp':
                                                 if args.pas:pas='bot' 
                                                 else: pas=None
-                                                x=call_vasp(slab1,typ=typ,dipolCorr='sc',name='slab1_cut%s-pre'%i,ENCUT=ecut,KPspacing=KP,KPgrid=KPgrid,FixCell=0,FixVol=0,xc=xc,passivate=pas,magmom=args.magmoms,sigma=sigma,exe=exe)
-                                        elif args.prog=='ase':x=call_ase(slab1,ctype=args.ase_pot,fmax=args.ase_fmax,steps=args.ase_gsteps,opt=opt)
-                                slab1=x[-1]
-                                Eslab1=x[0]
-
-                                # for vasp calculations, checks whether folder slab2-pre already exists and takes the output from there 
-                                if args.prog=='vasp' and os.path.exists("slab2-pre/vasprun.xml"):
-                                        print ("slab2-pre was located, reading data...");stdout.flush()
-                                        slab2=ase.io.read("slab2-pre/vasprun.xml",index=-1)
-                                        x=[slab2.get_potential_energy(),slab2]
-                                # otherwise, calculates does a geometry optimization of slab2
+                                                x=call_vasp(decomp1,typ='geom',dipolCorr='sc',name='decomp1_%s'%no_d,ENCUT=ecut,KPgrid=KPgrid,KPspacing=KP,FixCell=True,hubU=hubU,FixVol=0,xc=xc,passivate=pas,nosymm=1,vac=args.vac_slab,magmom=args.magmoms,sigma=sigma,exe=exe)#,FixList=[1,2])
+                                        elif args.prog=='ase':x=call_ase(decomp1,ctype=args.ase_pot,fmax=args.ase_fmax,steps=args.ase_gsteps,opt=True)
+                                        decomps1.append(decomp1)
                                 else:
-                                        slab2.name='slab2_cut%s'%j
-                                        if args.prog=='castep':x=call_castep(slab2,typ=typ,dipolCorr='sc',name='slab2_cut%s-pre'%j,ENCUT=ecut,KPgrid=KPgrid,PP=pp,FixCell=0)
+                                        decomps1.append(decomp1)
+                        SFE_slab1 = calculate_SFE(slab1, atoms1, decomps=decomps1)
+                # if nothing is supplied try SFE calculation for stoichiometric slabs
+                else:
+                        SFE_slab1 = calculate_SFE(slab1, atoms1)
+                print("Surface formation energy of %s: %.2f eV/atom\n"%(slab1.name, SFE_slab1));stdout.flush()
+                SFE_list_slab1.append(SFE_slab1)
+
+
+        SFE_list_slab2 = []
+        for j, slab2 in enumerate(surf_list_slab2):
+                if args.symSlabs: 
+                        #calculate energies/structures of the initial slabs (before alignment) if surfaces are symmetric
+                        # does this have to be a geometry optimisation or is a SP enough? Or should the user choose?
+                        slab2.center(vacuum=args.vac_slab, axis=2)
+
+                        # for vasp calculations, checks whether folder slab2-pre already exists and takes the output from there 
+                        if args.prog=='vasp' and os.path.exists("slab2_cut%s-pre/OUTCAR"%j):
+                                print ("slab2-pre was located, reading data...");stdout.flush()
+                                slab2=ase.io.read("slab2_cut%s-pre/OUTCAR"%j,index=-1)
+                                x=[slab2.get_potential_energy(),slab2]
+                        # otherwise, calculates does a geometry optimization of slab2
+                        else:
+                                slab2.name='slab2_cut%s'%j
+                                print("Pre-optimizing %s (before alignment)."%slab2.name);stdout.flush()
+                                if args.prog=='castep':x=call_castep(slab2,typ='geom',dipolCorr='sc',name='slab2_cut%s-pre'%j,ENCUT=ecut,KPgrid=KPgrid,PP=pp,FixCell=0)
+                                elif args.prog=='vasp':
+                                        if args.pas:pas='top'  
+                                        else: pas=None 
+                                        x=call_vasp(slab2,typ='geom',dipolCorr='sc',name='slab2_cut%s-pre'%j,ENCUT=ecut,KPgrid=KPgrid,KPspacing=KP,FixCell=0,FixVol=0,xc=xc,passivate=pas,magmom=args.magmoms,sigma=sigma,exe=exe)
+                                elif args.prog=='ase':x=call_ase(slab2,ctype=args.ase_pot,fmax=args.ase_fmax,steps=args.ase_gsteps,opt=True)
+                        slab2=x[-1]
+                        Eslab2=x[0]
+
+                #Not originally here. (Helps increase the overlap between surfaces. i.e. lower lattice misfit).
+                niggli=0
+                if niggli: niggli_reduce(slab1);niggli_reduce(slab2)
+
+                if args.prim: slab1=find_prim(slab1);slab2=find_prim(slab2) #does not work.
+
+                if 1: #to add vacuum to the slabs (for demonstration)
+                        slab2_vac=slab2
+                        slab2_vac.center(vacuum=args.vac_slab, axis=2)
+
+                        if args.prog=="castep":ase.io.write("OUTPUT/slab2_pre-align_cut%s.cell"%j,slab2.repeat((1,1,1)),format='castep-cell')
+                        elif args.prog=="vasp":ase.io.write("OUTPUT/slab2_pre-align_cut%s.vasp"%j,slab2.repeat((1,1,1)),format='vasp',vasp5=1)
+                        elif args.prog=="ase":ase.io.write("OUTPUT/slab2_pre-align_cut%s.xyz"%j,slab2.repeat((1,1,1)),format='extxyz')
+
+
+                # check whether chem_pots or decomps are provided
+                if args.chem_pots2:
+                        chem_pots2 = ast.literal_eval(args.chem_pots2)
+                        cp2 = {k: float(v) for k, v in chem_pots2.items()}
+                        SFE_slab2 = calculate_SFE(slab2, atoms2, chem_pots=cp2)
+                # if decomps2 are provided, check if they have an calculator attached, if not optimise them before calcualting the SFE
+                elif args.decomps2:
+                        decomps2 = []
+                        for no_d, d in enumerate(args.decomps2):
+                                decomp2 = ase.io.read(d)
+                                if decomp2.calc == None:
+                                        decomp2.name = 'decomp2_%s'%no_d
+                                        if args.prog=='castep': x=call_castep(decomp2,typ='geom',dipolCorr='sc',name='decomp2_%s'%no_d,ENCUT=ecut,KPgrid=KPgrid,KPspacing=KP,PP=pp,FixCell=1,hubU=hubU)#,FixList=[1,2]) #Optimizer TPSD or FIRE can be used for fixed cell opts.
                                         elif args.prog=='vasp':
-                                                if args.pas:pas='top'  
-                                                else: pas=None 
-                                                x=call_vasp(slab2,typ=typ,dipolCorr='sc',name='slab2_cut%s-pre'%j,ENCUT=ecut,KPgrid=KPgrid,KPspacing=KP,FixCell=0,FixVol=0,xc=xc,passivate=pas,magmom=args.magmoms,sigma=sigma,exe=exe)
-                                        elif args.prog=='ase':x=call_ase(slab2,ctype=args.ase_pot,fmax=args.ase_fmax,steps=args.ase_gsteps,opt=opt)
-                                slab2=x[-1]
-                                Eslab2=x[0]
+                                                if args.pas:pas='bot' 
+                                                else: pas=None
+                                                x=call_vasp(decomp2,typ='geom',dipolCorr='sc',name='decomp2_%s'%no_d,ENCUT=ecut,KPgrid=KPgrid,KPspacing=KP,FixCell=True,hubU=hubU,FixVol=0,xc=xc,passivate=pas,nosymm=1,vac=args.vac_slab,magmom=args.magmoms,sigma=sigma,exe=exe)#,FixList=[1,2])
+                                        elif args.prog=='ase':x=call_ase(decomp2,ctype=args.ase_pot,fmax=args.ase_fmax,steps=args.ase_gsteps,opt=True)
+                                        decomps2.append(decomp2)
+                                else:
+                                        decomps2.append(decomp2)
+                        SFE_slab2 = calculate_SFE(slab2, atoms2, decomps=decomps2)
+                # if nothing is supplied try SFE calculation for stoichiometric slabs
+                elif args.prog=='ase':
+                        SFE_slab2 = calculate_SFE(slab2, atoms2, ase=True)  
+                else:
+                        SFE_slab2 = calculate_SFE(slab2, atoms2)
+                print("Surface formation energy of %s: %.2f eV/atom\n"%(slab2.name, SFE_slab2));stdout.flush()
+                SFE_list_slab2.append(SFE_slab2)
+
+        # exit functionality
+        # if keyword provided, exit safely after slab calculations
+        if args.surf_only: 
+                print('Exiting code after the optimisation of the surface slabs');stdout.flush()
+                exit()
+
+        # sort the slabs by their SFE values of symmetric surfaces of slab 1 and save the args.noSlabs lowest energy slabs
+        low_SFEs_slab1 = sorted(enumerate(SFE_list_slab1), key=lambda x: x[1])[:args.noSlabs]
+        le_surf_slab1 = [surf_list_slab1[i] for i, _ in low_SFEs_slab1]
+        values_SFE_s1 = [v for _, v in low_SFEs_slab1]
+        indices_le_s1 = [i for i,_ in low_SFEs_slab1]
+        print("\nThe %s lowest energy slabs are:"%args.noSlabs);stdout.flush()
+        for surf, val in zip(le_surf_slab1, values_SFE_s1):
+                print("%s: %.2f eV/atom"%(surf.name, val));stdout.flush() 
+
+        # sort the slabs by their SFE values of symmetric surfaces of slab 2 and save the args.noSlabs lowest energy slabs
+        low_SFEs_slab2 = sorted(enumerate(SFE_list_slab2), key=lambda x: x[1])[:args.noSlabs]
+        le_surf_slab2 = [surf_list_slab2[i] for i, _ in low_SFEs_slab2]
+        values_SFE_s2 = [v for _, v in low_SFEs_slab2]
+        indices_le_s2 = [i for i,_ in low_SFEs_slab2]
+        print("The %s lowest energy slabs are:"%args.noSlabs);stdout.flush()
+        for surf, val in zip(le_surf_slab2, values_SFE_s2):
+                print("%s: %.2f eV/atom"%(surf.name, val));stdout.flush()
 
 
+        for i, slab1 in enumerate(le_surf_slab1):
+                for j, slab2 in enumerate(le_surf_slab2):
 
-                        #Not originally here. (Helps increase the overlap between surfaces. i.e. lower lattice misfit).
-                        niggli=0
-                        if niggli: niggli_reduce(slab1);niggli_reduce(slab2)
-
-                        if args.prim: slab1=find_prim(slab1);slab2=find_prim(slab2) #does not work.
-
-                        if 1: #to add vacuum to the slabs (for demonstration)
-                                slab1_vac=slab1
-                                slab2_vac=slab2
-                                slab1_vac.center(vacuum=args.vac_slab, axis=2) #TODO: add vacuum
-                                slab2_vac.center(vacuum=args.vac_slab, axis=2)
-
-                        if args.prog=="castep":ase.io.write("OUTPUT/slab1_pre-align_cut%s.cell"%i,slab1.repeat((1,1,1)),format='castep-cell');  ase.io.write("OUTPUT/slab2_pre-align_cut%s.cell"%j,slab2.repeat((1,1,1)),format='castep-cell')
-                        elif args.prog=="vasp":ase.io.write("OUTPUT/slab1_pre-align_cut%s.vasp"%i,slab1.repeat((1,1,1)),format='vasp',vasp5=1);  ase.io.write("OUTPUT/slab2_pre-align_cut%s.vasp"%j,slab2.repeat((1,1,1)),format='vasp',vasp5=1)
-                        elif args.prog=="ase":ase.io.write("OUTPUT/slab1_pre-align_cut%s.xyz"%i,slab1.repeat((1,1,1)),format='extxyz');  ase.io.write("OUTPUT/slab2_pre-align_cut%s.xyz"%j,slab2.repeat((1,1,1)),format='extxyz')
-
-
-                        print("\nMisfit (mu) of slabs 1 and 2 (before alignment): %.2f%%"%(misfit(slab1,slab2)*100));stdout.flush()#,ifPlot=1)
-                        
-                        # compute surface formation energyes of the slabs
-                        if args.chem_pots1:
-                                # convert the string to a dictionary
-                                chem_pots1 = ast.literal_eval(args.chem_pots1)
-                                cp1 = {k: float(v) for k, v in chem_pots1.items()}
-                                SFE_slab1 = calculate_SFE(slab1, atoms1, chem_pots=cp1)
-                        elif args.decomps1:
-                                decomps1 = [ase.io.read(d) for d in args.decomps1]
-                                SFE_slab1 = calculate_SFE(slab1, atoms1, decomps=decomps1)
-                        else:
-                                SFE_slab1 = calculate_SFE(slab1, atoms1)
-                        print("Surface formation energy of %s: %.2f eV/atom"%(slab1.name, SFE_slab1));stdout.flush()
-
-                        if args.chem_pots2:
-                                chem_pots2 = ast.literal_eval(args.chem_pots2)
-                                cp2 = {k: float(v) for k, v in chem_pots2.items()}
-                                SFE_slab2 = calculate_SFE(slab2, atoms2, chem_pots=cp2)
-                        elif args.decomps2:
-                                print(args.decomps2)
-                                decomps2 = [ase.io.read(d) for d in args.decomps2]
-                                SFE_slab2 = calculate_SFE(slab2, atoms2, decomps=decomps2)
-                        else:
-                                SFE_slab2 = calculate_SFE(slab2, atoms2)
-                        print("Surface formation energy of %s: %.2f eV/atom"%(slab2.name, SFE_slab2));stdout.flush()
-
+                        print("\nMisfit (mu) of %s and %s (before alignment): %.2f%%"%(slab1.name, slab2.name, misfit(slab1,slab2)*100));stdout.flush()#,ifPlot=1)
 
         ######################
         # Alignment of Slabs #
         ######################
-                        print("\nAligning the two slabs...");stdout.flush()
+                       print("\nAligning the two slabs...");stdout.flush()
                         slab1,slab2=slab_aligner(slab1,slab2,L,Lmax,Lstep,ptol,T,atoms1,atoms2)
-                        print("\nMisfit (mu) of slabs 1 and 2 (after alignment): %.2f%%"%(misfit(slab1,slab2)*100));stdout.flush()#,ifPlot=1)
+                        slab1.name='slab1_cuts%s'%indices_le_s1[i]
+                        slab2.name='slab2_cuts%s'%indices_le_s2[j]
+                        print("\nMisfit (mu) of %s and %s (after alignment): %.2f%%"%(slab1.name, slab2.name, misfit(slab1,slab2)*100));stdout.flush()#,ifPlot=1)
 
                         if args.view: view(slab1);view(slab2)
                         if args.flip2: #Flip the slab2 (top slab) upside-down.still the cell angles cannot be preserved !! using -h,k,-l could solve this. Or can be moved to after optimizations of the slabs (pasivation settings should be changed, from top to bottom)
@@ -1065,9 +1127,9 @@ if __name__== '__main__':
                                 #slab2.center(vacuum=args.vac,axis=2)
                                 if args.view:view(slab2)
 
-                        if args.prog=="castep":ase.io.write("OUTPUT/slab1_aligned_cut%s.cell"%i,slab1.repeat((1,1,1)),format='castep-cell');  ase.io.write("OUTPUT/slab2_aligned_cut%s.cell"%j,slab2.repeat((1,1,1)),format='castep-cell')
-                        elif args.prog=="vasp":ase.io.write("OUTPUT/slab1_aligned_cut%s.vasp"%i,slab1.repeat((1,1,1)),format='vasp',vasp5=1);  ase.io.write("OUTPUT/slab2_aligned_cut%s.vasp"%j,slab2.repeat((1,1,1)),format='vasp',vasp5=1)
-                        elif args.prog=="ase":ase.io.write("OUTPUT/slab1_aligned_cut%s.xyz"%i,slab1.repeat((1,1,1)),format='extxyz');  ase.io.write("OUTPUT/slab2_cut%s_aligned.xyz"%j,slab2.repeat((1,1,1)),format='extxyz')
+                        if args.prog=="castep":ase.io.write("OUTPUT/slab1_aligned_cut%s.cell"%indices_le_s1[i],slab1.repeat((1,1,1)),format='castep-cell');  ase.io.write("OUTPUT/slab2_aligned_cut%s.cell"%indices_le_s2[j],slab2.repeat((1,1,1)),format='castep-cell')
+                        elif args.prog=="vasp":ase.io.write("OUTPUT/slab1_aligned_cut%s.vasp"%indices_le_s1[i],slab1.repeat((1,1,1)),format='vasp',vasp5=1);  ase.io.write("OUTPUT/slab2_aligned_cut%s.vasp"%indices_le_s2[j],slab2.repeat((1,1,1)),format='vasp',vasp5=1)
+                        elif args.prog=="ase":ase.io.write("OUTPUT/slab1_aligned_cut%s.xyz"%indices_le_s1[i],slab1.repeat((1,1,1)),format='extxyz');  ase.io.write("OUTPUT/slab2_cut%s_aligned.xyz"%indices_le_s2[j],slab2.repeat((1,1,1)),format='extxyz')
 
                         if 1:
                         #Interface before optimizing the individual slabs.
@@ -1086,12 +1148,12 @@ if __name__== '__main__':
                                         if args.view:view(interface)
                                 
 
-                                if args.prog=="castep": ase.io.write("OUTPUT/interface-orig-slabs_cuts_%s_%s.cell"%(i,j),interface,format='castep-cell')
-                                elif args.prog=="vasp": ase.io.write("OUTPUT/interface-orig-slabs_cuts_%s_%s.vasp"%(i,j),interface,format='vasp',vasp5=1)
-                                elif args.prog=="ase": ase.io.write("OUTPUT/interface-orig-slabs_cuts_%s_%s.xyz"%(i,j),interface,format='extxyz')
+                                if args.prog=="castep": ase.io.write("OUTPUT/interface-orig-slabs_cuts_%s_%s.cell"%(indices_le_s1[i],indices_le_s2[j]),interface,format='castep-cell')
+                                elif args.prog=="vasp": ase.io.write("OUTPUT/interface-orig-slabs_cuts_%s_%s.vasp"%(indices_le_s1[i],indices_le_s2[j]),interface,format='vasp',vasp5=1)
+                                elif args.prog=="ase": ase.io.write("OUTPUT/interface-orig-slabs_cuts_%s_%s.xyz"%(indices_le_s1[i],indices_le_s2[j]),interface,format='extxyz')
 
                         if 1: #to calculate energies/structures of the actual slabs (after alignment).
-                                print("\nOptimizing the slabs 1 and 2 (after alignment).");stdout.flush()
+                                print("\nOptimizing %s and %s (after alignment)."%(slab1.name, slab2.name));stdout.flush()
 
                                 if 1: #to add vacuum to the slabs (needed)
                                         slab1.center(vacuum=args.vac_slab, axis=2)
@@ -1103,14 +1165,14 @@ if __name__== '__main__':
                                         x=[slab1.get_potential_energy(),slab1]
                                 
                                 else:
-                                        slab1.name='slab1_cut%s'%i
-                                        if args.prog=='castep': x=call_castep(slab1,typ=typ,dipolCorr='sc',name='slab1_cut%s-aligned'%i,ENCUT=ecut,KPgrid=KPgrid,KPspacing=KP,PP=pp,FixCell=1,hubU=hubU)#,FixList=[1,2]) #Optimizer TPSD or FIRE can be used for fixed cell opts.
+                                        #slab1.name='slab1_cut%s'%i
+                                        if args.prog=='castep': x=call_castep(slab1,typ='geom',dipolCorr='sc',name='slab1_cut%s-aligned'%indices_le_s1[i],ENCUT=ecut,KPgrid=KPgrid,KPspacing=KP,PP=pp,FixCell=1,hubU=hubU)#,FixList=[1,2]) #Optimizer TPSD or FIRE can be used for fixed cell opts.
                                         elif args.prog=='vasp': 
                                                 if args.pas:pas='bot' 
                                                 else: pas=None
                                                 #x=call_vasp(slab1,typ="geom",dipolCorr='sc',name='slab1-aligned',ENCUT=ecut,KPgrid='1 1 1',FixCell=True,hubU=hubU,FixVol=0,xc=xc,passivate=pas,nosymm=1,vac=args.vac,magmom=args.magmoms)#,FixList=[1,2])
-                                                x=call_vasp(slab1,typ=typ,dipolCorr='sc',name='slab1_cut%s-aligned'%i,ENCUT=ecut,KPgrid=KPgrid,KPspacing=KP,FixCell=True,hubU=hubU,FixVol=0,xc=xc,passivate=pas,nosymm=1,vac=args.vac_slab,magmom=args.magmoms,sigma=sigma,exe=exe)#,FixList=[1,2])
-                                        elif args.prog=='ase':x=call_ase(slab1,ctype=args.ase_pot,fmax=args.ase_fmax,steps=args.ase_gsteps,opt=opt)
+                                                x=call_vasp(slab1,typ='geom',dipolCorr='sc',name='slab1_cut%s-aligned'%indices_le_s1[i],ENCUT=ecut,KPgrid=KPgrid,KPspacing=KP,FixCell=True,hubU=hubU,FixVol=0,xc=xc,passivate=pas,nosymm=1,vac=args.vac_slab,magmom=args.magmoms,sigma=sigma,exe=exe)#,FixList=[1,2])
+                                        elif args.prog=='ase':x=call_ase(slab1,ctype=args.ase_pot,fmax=args.ase_fmax,steps=args.ase_gsteps,opt=True)
 
                                 slab1=x[-1]
                                 Eslab1=x[0]
@@ -1121,16 +1183,16 @@ if __name__== '__main__':
                                         x=[slab2.get_potential_energy(),slab2]
                                 
                                 else:
-                                        slab2.name='slab2_cut%s'%j
+                                        #slab2.name='slab2_cut%s'%j
                                         if args.prog=='castep':
                                                 #x=call_castep(slab2,typ="geom",dipolCorr='sc',name='slab2-aligned',ENCUT=ecut,KPgrid='1 1 1',PP=pp,FixCell=True,hubU=hubU)#,FixList=[1,2])
-                                                x=call_castep(slab2,typ=typ,dipolCorr='sc',name='slab2_cut%s-aligned'%j,ENCUT=ecut,KPgrid=KPgrid,KPspacing=KP,PP=pp,FixCell=1,hubU=hubU)#,FixList=[1,2]) #Optimizer TPSD or FIRE can be used for fixed cell opts.
+                                                x=call_castep(slab2,typ='geom',dipolCorr='sc',name='slab2_cut%s-aligned'%indices_le_s2[j],ENCUT=ecut,KPgrid=KPgrid,KPspacing=KP,PP=pp,FixCell=1,hubU=hubU)#,FixList=[1,2]) #Optimizer TPSD or FIRE can be used for fixed cell opts.
                                         elif args.prog=='vasp':
                                                 if args.pas:pas='top'  
                                                 else: pas=None 
                                                 #x=call_vasp(slab2,typ="geom",dipolCorr='sc',name='slab2-aligned',ENCUT=ecut,KPgrid='1 1 1',FixCell=True,hubU=hubU,FixVol=0,xc=xc,passivate=pas,nosymm=1,vac=args.vac,magmom=args.magmoms)#,FixList=[1,2])
-                                                x=call_vasp(slab2,typ=typ,dipolCorr='sc',name='slab2_cut%s-aligned'%j,ENCUT=ecut,KPgrid=KPgrid,KPspacing=KP,FixCell=True,hubU=hubU,FixVol=0,xc=xc,passivate=pas,nosymm=1,vac=args.vac_slab,magmom=args.magmoms,sigma=sigma,exe=exe)#,FixList=[1,2])
-                                        elif args.prog=='ase':x=call_ase(slab2,ctype=args.ase_pot,fmax=args.ase_fmax,steps=args.ase_gsteps,opt=opt)
+                                                x=call_vasp(slab2,typ='geom',dipolCorr='sc',name='slab2_cut%s-aligned'%indices_le_s2[j],ENCUT=ecut,KPgrid=KPgrid,KPspacing=KP,FixCell=True,hubU=hubU,FixVol=0,xc=xc,passivate=pas,nosymm=1,vac=args.vac_slab,magmom=args.magmoms,sigma=sigma,exe=exe)#,FixList=[1,2])
+                                        elif args.prog=='ase':x=call_ase(slab2,ctype=args.ase_pot,fmax=args.ase_fmax,steps=args.ase_gsteps,opt=True)
 
                                 slab2=x[-1]
                                 Eslab2=x[0]
@@ -1155,14 +1217,14 @@ if __name__== '__main__':
 
                         
                         if args.prog=="castep":
-                                ase.io.write("OUTPUT/slab1_aligned_opted_cut%s.cell"%i,slab1,format='castep-cell')
-                                ase.io.write("OUTPUT/slab2_aligned_opted_cut%s.cell"%j,slab2,format='castep-cell')
+                                ase.io.write("OUTPUT/slab1_aligned_opted_cut%s.cell"%indices_le_s1[i],slab1,format='castep-cell')
+                                ase.io.write("OUTPUT/slab2_aligned_opted_cut%s.cell"%indices_le_s2[j],slab2,format='castep-cell')
                         elif args.prog=='vasp':
-                                ase.io.write("OUTPUT/slab1_aligned_opted_cut%s.vasp"%i,slab1,format='vasp',vasp5=1)
-                                ase.io.write("OUTPUT/slab2_aligned_opted_cut%s.vasp"%j,slab2,format='vasp',vasp5=1)
+                                ase.io.write("OUTPUT/slab1_aligned_opted_cut%s.vasp"%indices_le_s1[i],slab1,format='vasp',vasp5=1)
+                                ase.io.write("OUTPUT/slab2_aligned_opted_cut%s.vasp"%indices_le_s2[j],slab2,format='vasp',vasp5=1)
                         elif args.prog=='ase':
-                                ase.io.write("OUTPUT/slab1_aligned_opted_cut%s.xyz"%i,slab1,format='extxyz')
-                                ase.io.write("OUTPUT/slab2_aligned_opted_cut%s.xyz"%j,slab2,format='extxyz')
+                                ase.io.write("OUTPUT/slab1_aligned_opted_cut%s.xyz"%indices_le_s1[i],slab1,format='extxyz')
+                                ase.io.write("OUTPUT/slab2_aligned_opted_cut%s.xyz"%indices_le_s2[j],slab2,format='extxyz')
                 
                         if args.view:view(slab1);view(slab2)
 
@@ -1190,9 +1252,9 @@ if __name__== '__main__':
                                 if args.view:view(interface)
 
 
-                        if args.prog=="castep": ase.io.write("OUTPUT/interface-pre_opt_cuts_%s_%s.cell"%(i,j),interface,format='castep-cell')
-                        elif args.prog=="vasp": ase.io.write("OUTPUT/interface-pre_opt_cuts_%s_%s.vasp"%(i,j),interface,format='vasp',vasp5=1)
-                        elif args.prog=='ase':  ase.io.write("OUTPUT/interface-pre_opt_cuts_%s_%s.xyz"%(i,j),interface,format='extxyz')
+                        if args.prog=="castep": ase.io.write("OUTPUT/interface-pre_opt_cuts_%s_%s.cell"%(indices_le_s1[i],indices_le_s2[j]),interface,format='castep-cell')
+                        elif args.prog=="vasp": ase.io.write("OUTPUT/interface-pre_opt_cuts_%s_%s.vasp"%(indices_le_s1[i],indices_le_s2[j]),interface,format='vasp',vasp5=1)
+                        elif args.prog=='ase':  ase.io.write("OUTPUT/interface-pre_opt_cuts_%s_%s.xyz"%(indices_le_s1[i],indices_le_s2[j]),interface,format='extxyz')
                                 
 
                         if args.convSep: #Run optimisation on the interface speration distance
@@ -1221,14 +1283,14 @@ if __name__== '__main__':
 
                         if 1: #Single point interface energy before optimisation
                                 print("\n Single point run for the interface geometry.");stdout.flush()
-                                interface.name='interface_cuts_%s_%s'%(i,j)
+                                interface.name='interface_cuts_%s_%s'%(indices_le_s1[i],indices_le_s2[j])
                                 if args.vac_int>4:dipC='SC'
                                 else:dipC='None'
 
                                 if args.prog=="castep":
                                         #x=call_castep(interface,typ="sp",dipolCorr='SC',name='interface',ENCUT=ecut,PP=pp,KPspacing=KP,hubU=hubU)
-                                        x=call_castep(interface,typ="sp",dipolCorr=dipC,name='interface_cuts_%s_%s-pre'%(i,j),ENCUT=ecut,PP=pp,KPgrid=KPgrid,KPspacing=KP,hubU=hubU) #KPgrid='1 1 1'               
-                                elif args.prog=="vasp": x=call_vasp(interface,typ="sp",dipolCorr=dipC,name='interface_cuts_%s_%s-pre'%(i,j),ENCUT=ecut,KPgrid=KPgrid,KPspacing=KP,hubU=hubU,FixVol=0,xc=xc,nosymm=1,sigma=sigma,exe=exe) #vac=args.vac
+                                        x=call_castep(interface,typ="sp",dipolCorr=dipC,name='interface_cuts_%s_%s-pre'%(indices_le_s1[i],indices_le_s2[j]),ENCUT=ecut,PP=pp,KPgrid=KPgrid,KPspacing=KP,hubU=hubU) #KPgrid='1 1 1'               
+                                elif args.prog=="vasp": x=call_vasp(interface,typ="sp",dipolCorr=dipC,name='interface_cuts_%s_%s-pre'%(indices_le_s1[i],indices_le_s2[j]),ENCUT=ecut,KPgrid=KPgrid,KPspacing=KP,hubU=hubU,FixVol=0,xc=xc,nosymm=1,sigma=sigma,exe=exe) #vac=args.vac
                                 elif args.prog=='ase':x=call_ase(interface,ctype=args.ase_pot,fmax=args.ase_fmax,steps=args.ase_gsteps,opt=0)
 
                                 interface=x[-1]
@@ -1242,13 +1304,13 @@ if __name__== '__main__':
 
                         if 1: #Optimise the final interface geometry
                                 print("\nOptimizing the final interface geometry.");stdout.flush()
-                                interface.name='interface_cuts_%s_%s'%(i,j)
+                                interface.name='interface_cuts_%s_%s'%(indices_le_s1[i],indices_le_s2[j])
                                 if args.vac_int>4:dipC='SC'
                                 else:dipC='None'
                                 #CHECK: Should we fix the volume or not?? fix vol works for some cases (YIG) but not for some (Al2O3//Si)
-                                if args.prog=="castep": x=call_castep(interface,typ=typ,dipolCorr=dipC,name='interface_cuts_%s_%s'%(i,j),ENCUT=ecut,PP=pp,KPgrid=KPgrid,KPspacing=KP,hubU=hubU)
-                                elif args.prog=="vasp": x=call_vasp(interface,typ=typ,dipolCorr=dipC,name='interface_cuts_%s_%s'%(i,j),ENCUT=ecut,KPgrid=KPgrid,KPspacing=KP,hubU=hubU,FixVol=0,xc=xc,nosymm=1,magmom=args.magmoms) 
-                                elif args.prog=='ase': x=call_ase(interface,ctype=args.ase_pot,fmax=args.ase_fmax,steps=args.ase_gsteps,opt=opt)
+                                if args.prog=="castep": x=call_castep(interface,typ='geom',dipolCorr=dipC,name=interface.name,ENCUT=ecut,PP=pp,KPgrid=KPgrid,KPspacing=KP,hubU=hubU)
+                                elif args.prog=="vasp": x=call_vasp(interface,typ='geom',dipolCorr=dipC,name=interface.name,ENCUT=ecut,KPgrid=KPgrid,KPspacing=KP,hubU=hubU,FixVol=0,xc=xc,nosymm=1,magmom=args.magmoms) 
+                                elif args.prog=='ase': x=call_ase(interface,ctype=args.ase_pot,fmax=args.ase_fmax,steps=args.ase_gsteps,opt=True)
 
                                 interface=x[-1]
                                 Eint=x[0]
@@ -1261,11 +1323,11 @@ if __name__== '__main__':
                                 print(str1);stdout.flush()
                                 outf.writelines(str1)
 
-                                if args.prog=='castep': ase.io.write("OUTPUT/interface_opted_cuts_%s_%s.cell"%(i,j),interface,format='castep-cell')
-                                elif args.prog=='vasp': ase.io.write("OUTPUT/interface_opted_cuts_%s_%s.vasp"%(i,j),interface,format='vasp',vasp5=1)
-                                elif args.prog=='ase':  ase.io.write("OUTPUT/interface_opted_cuts_%s_%s.xyz"%(i,j),interface,format='extxyz')
+                                if args.prog=='castep': ase.io.write("OUTPUT/interface_opted_cuts_%s_%s.cell"%(indices_le_s1[i],indices_le_s2[j]),interface,format='castep-cell')
+                                elif args.prog=='vasp': ase.io.write("OUTPUT/interface_opted_cuts_%s_%s.vasp"%(indices_le_s1[i],indices_le_s2[j]),interface,format='vasp',vasp5=1)
+                                elif args.prog=='ase':  ase.io.write("OUTPUT/interface_opted_cuts_%s_%s.xyz"%(indices_le_s1[i],indices_le_s2[j]),interface,format='extxyz')
 
-                                ase.io.write("OUTPUT/interface_opted_cuts_%s_%s.cif"%(i,j),interface,format='cif')
+                                ase.io.write("OUTPUT/interface_opted_cuts_%s_%s.cif"%(indices_le_s1[i],indices_le_s2[j]),interface,format='cif')
                                 
 
         outf.close()

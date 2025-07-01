@@ -158,7 +158,8 @@ def wrap_coords(slab):
     slab.set_scaled_positions(sp)
     return slab
 
-### Code for symmetric surfaces by Julian Holland: https://github.com/julianholland/Symmetric-Surface-Finder
+### Code for symmetric surfaces ###
+# Code for symmetric surfaces by Julian Holland: https://github.com/julianholland/Symmetric-Surface-Finder
 
 # def find_smallest_sym_surface(surf, surface_layers, vacuum, position_accuracy):
 #     """For any given surface this function will produce a symmetric surface should one exist"""
@@ -309,9 +310,9 @@ def permute_surface(bulk_ase, miller_plane, minimum_thickness, vacuum):
                     continue
                 surf_list.append(sym_slab_ase)
     if len(surf_list) == 0:
-        print("Found no symmetric structures for this Miller plane.\n")
+        print("Found no symmetric structures for this Miller plane.\n");stdout.flush()
     else:
-        print(f"Found {str(len(surf_list))} unique, symmetric surfaces for {str(miller_plane)} \n")
+        print(f"Found {str(len(surf_list))} unique, symmetric surfaces for {str(miller_plane)} \n");stdout.flush()
         
     return surf_list
 

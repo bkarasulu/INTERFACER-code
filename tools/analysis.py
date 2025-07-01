@@ -2,6 +2,7 @@ from __future__ import print_function
 import numpy as np
 import argparse,math, os.path,fractions,time
 import matplotlib.pyplot as plt
+import warnings
 
 from os import system,popen,chdir,getcwd,getenv,putenv,listdir
 from re import search
@@ -300,7 +301,7 @@ def calculate_chem_pots(bulk, decomps):
 
     return chem_pots
 
-def calculate_SFE(slab, bulk, decomps=None, chem_pots=None):
+def calculate_SFE(slab, bulk, decomps=None, chem_pots=None, ase=False):
     """Calculate the surface formation energy of a slab structure.
     Args:
         slab (ase.Atoms): The slab structure.
@@ -315,7 +316,7 @@ def calculate_SFE(slab, bulk, decomps=None, chem_pots=None):
 
     E_bulk = bulk.get_potential_energy() # in eV
     E_slab = slab.get_potential_energy() # in eV
-
+    
     # get the type of atoms and the number of atoms for each type in the bulk and slab structures
     toa_bulk = sorted(set(bulk.symbols))
     toa_slab = sorted(set(slab.symbols))
@@ -328,7 +329,7 @@ def calculate_SFE(slab, bulk, decomps=None, chem_pots=None):
     no_fu_bulk = np.min(noa_bulk)/np.min(noa_bulk_fu)
     
     # calculate number of formula units of bulk in the slab
-    fu_all = np.array(noa_slab)/np.array(noa_bulk)
+    fu_all = np.array(noa_slab)/np.array(noa_bulk/no_fu_bulk)
 
     # if all formula units in the slab are the same, then the slab is stoichiometric 
     if np.all(fu_all == fu_all[0]):
@@ -342,7 +343,7 @@ def calculate_SFE(slab, bulk, decomps=None, chem_pots=None):
         # calculate the difference in the number of atoms of each type between the slab and the bulk
         diff = {}
         for i, symbol in enumerate(toa_bulk):
-            diff[symbol] = noa_slab[i] - noa_bulk[i]
+            diff[symbol] = noa_slab[i] - (noa_bulk[i]/no_fu_bulk) * no_fu_bis
         # check if chemical potentials or decomposition products are provided to calculate the chemical potentials
         if chem_pots is not None:
             if not isinstance(chem_pots, dict):
@@ -354,6 +355,10 @@ def calculate_SFE(slab, bulk, decomps=None, chem_pots=None):
                 raise ValueError("decomps should be a list of optimised decomposition products, each as an ase.Atoms object.")
             assert len(decomps) == len(toa_slab) - 1, "The number of decomposition products should match the number of elements in the slab structure minus one."
             chem_pots = calculate_chem_pots(bulk, decomps) # calculate the chemical potential of each species based on the decomposition products
+        elif ase:
+            chem_pots = {toa_bulk[i]: 0 for i in range(len(toa_bulk))}
+            warnings.warn("At least one slab is not stoichiometric; either chem_pots or decomps needs to be provided to calculate the surface formation energy." +
+                          "Using zero chemical potentials for all elements in the slab structure. This may lead to incorrect results.", UserWarning)
         else:
             raise ValueError(f"Slab {slab.name} is not stroichiometric; either chem_pots or decomps needs to be provided to calculate the surface formation energy.")
         # calculate the surface formation energy of a non-stoichiometric slab
