@@ -566,89 +566,83 @@ if __name__== '__main__':
         #Basic input/output related keywords
         parser.add_argument("-i1", "--infile1", required=1)
         parser.add_argument("-i2", "--infile2", required=1)
-        parser.add_argument("-o", "--outfile",default="interfaces.out")
-        parser.add_argument("-m1","--miller1", default=(1,0,0), nargs="+", type=int)
-        parser.add_argument("-m2","--miller2", default=(1,0,0), nargs="+", type=int)
-        parser.add_argument("-surf1","--surface1", default=False,help="extra input file for a surface structure of i1")
-        parser.add_argument("-surf2","--surface2", default=False,help="extra input file for a surface structure of i2")
+        parser.add_argument("-o", "--outfile", default="interfaces.out")
+        parser.add_argument("-m1", "--miller1", default=(1,0,0), nargs="+", type=int)
+        parser.add_argument("-m2", "--miller2", default=(1,0,0), nargs="+", type=int)
+        parser.add_argument("-surf1", "--surface1", default=False, help="extra input file for a surface structure of i1")
+        parser.add_argument("-surf2", "--surface2", default=False, help="extra input file for a surface structure of i2")
 
         #Keywords related to structure building
-        parser.add_argument("-cr1","--creps1",default=None,type=int,help='Repetitions in c direction (number of layers) for surface model 1')
-        parser.add_argument("-cr2","--creps2",default=None,type=int,help='Repetitions in c direction (number of layers) for surface model 2')
-        parser.add_argument("-msd","--max_slab_dimension",default=50, type=float,help='max length of cell sides')
-        parser.add_argument("-th","--thickness",default=7,type=float,help='Thickness of the slab (in c-direction), def: 7A')
-        parser.add_argument("-pt","--percentage_tolerance",default=4,type=float,help='percentage tolerances for angle and length matching between two slabs')
-        parser.add_argument("-Linit","--initLength",default=3,type=float,help='Initial (minimum) length of surface slabs in a/b direction, def: 3A') #orig def: 5A
-        parser.add_argument("-Lstep","--stepLength",default=2,type=float,help='step size for the increasing the length in a/b direction, def: 2A') #orig def: 5A
-
-        parser.add_argument("-vac_slab","--vac_slab",default=6.,type=float,help='Size of vacuum padding in z direction (only for slabs), def: 6 A on both sites')
-        parser.add_argument("-vac_int","--vac_int",default=1.,type=float,help='Size of vacuum padding in z direction (only for interface), def: 1.0 A on both sites') #should be equal to args.sep/2 by default!       
-        parser.add_argument("-sep","--sep",default=2.0,type=float,help='Seperation between the surface slabs forming the interface, def: 2.0 A')
-        parser.add_argument("-pass", "--pas",action="store_true",default=False,help="To passivate the top and bottom surface of the interface slab based on dangling bonds.")
-        parser.add_argument('-prim','--prim', default=False,action='store_true', help='Use primitive cell for bulk 1 and 2. Def: no')
-        parser.add_argument('-niggli','--niggli', default=False,action='store_true', help='Niggli reduce the resulting interface. Def: no')
-        parser.add_argument("-flip2", "--flip2",action="store_true",default=False,help="Flip the slab2 upside-down.")
-        parser.add_argument("-sym_slabs", "--symSlabs",action="store_true",default=False,help="Use to create symmetric surface slabs. Def: no")
+        parser.add_argument("-cr1", "--creps1", default=None, type=int, help='Repetitions in c direction (number of layers) for surface model 1')
+        parser.add_argument("-cr2", "--creps2", default=None, type=int, help='Repetitions in c direction (number of layers) for surface model 2')
+        parser.add_argument("-msd", "--max_slab_dimension", default=50, type=float, help='max length of cell sides')
+        parser.add_argument("-th", "--thickness", default=7, type=float, help='Thickness of the slab (in c-direction), def: 7A')
+        parser.add_argument("-pt", "--percentage_tolerance", default=4, type=float, help='percentage tolerances for angle and length matching between two slabs')
+        parser.add_argument("-Linit", "--initLength", default=3, type=float, help='Initial (minimum) length of surface slabs in a/b direction, def: 3A') #orig def: 5A
+        parser.add_argument("-Lstep", "--stepLength", default=2, type=float, help='step size for the increasing the length in a/b direction, def: 2A') #orig def: 5A
+        parser.add_argument("-vac_slab", "--vac_slab", default=6., type=float, help='Size of vacuum padding in z direction (only for slabs), def: 6 A on both sites')
+        parser.add_argument("-vac_int", "--vac_int", default=1., type=float, help='Size of vacuum padding in z direction (only for interface), def: 1.0 A on both sites') #should be equal to args.sep/2 by default!       
+        parser.add_argument("-sep", "--sep", default=2.0, type=float, help='Seperation between the surface slabs forming the interface, def: 2.0 A')
+        parser.add_argument("-pass", "--pas", default=False, action="store_true", help="To passivate the top and bottom surface of the interface slab based on dangling bonds.")
+        parser.add_argument("-prim", "--prim", default=False, action='store_true', help='Use primitive cell for bulk 1 and 2. Def: no')
+        parser.add_argument("-niggli", "--niggli", default=False, action='store_true', help='Niggli reduce the resulting interface. Def: no')
+        parser.add_argument("-flip2", "--flip2", default=False, action="store_true", help="Flip the slab2 upside-down.")
+        parser.add_argument("-sym_slabs", "--symSlabs", default=False, action="store_true", help="Use to create symmetric surface slabs. Def: no")
         parser.add_argument("-no_slabs", "--noSlabs",default=1, type=int, help="Number of slabs to be used for interface creation, starting from the most stable slab. Def: 1")
         parser.add_argument("-cp1", "--chem_pots1", default=None, type=str, help="Chemical potentials for the slab1, e.g. '{'Fe':-3.0, 'O':-2.0}' (in eV). Def: No")
         parser.add_argument("-cp2", "--chem_pots2", default=None, type=str, help="Chemical potentials for the slab2, e.g. '{'Fe':-3.0, 'O':-2.0}' (in eV). Def: No")
         parser.add_argument("-decomps1", "--decomps1", default=None, type=str, nargs="+", help="list of deomposition structure files of slab1. Def: No")
         parser.add_argument("-decomps2", "--decomps2", default=None, type=str, nargs="+", help="list of deomposition structure files of slab2. Def: No")
-        parser.add_argument("-surf_only","--surf_only",default=False,action="store_true",help="Use to only calculate the surfaces and exit before the creation of the interfaces. Def: no")
+        parser.add_argument("-surf_only","--surf_only", default=False, action="store_true", help="Use to only calculate the surfaces and exit before the creation of the interfaces. Def: no")
 
-        #Convergence tests related keywords:
-        parser.add_argument('-tsur',"-test_surf", "--checkSurfs",action="store_true",default=False,help="To check the stbility of different surfaces for the given materials. Def: No")
-        parser.add_argument('-tlay',"-test_layer", "--convLayers",action="store_true",default=False,help="To run a convergence test on the layer thickness for slab(s) generated. Def: No")
-        parser.add_argument('-tsep',"-test_sep", "--convSep",action="store_true",default=False,help="To run a convergence test on the interlayer separation for the interface generated. Def: No")
-        parser.add_argument('-thor',"-test_hori", "--test_hori",action="store_true",default=False,help="To run a convergence test on the interlayer separation for the interface generated. Def: No")
-        #TODO: parsing of the miller indices are not working right!! Fix needed; wok with the default value though
-        parser.add_argument("-mlist","--miller_list", default=[(1,0,0),(0,1,0),(0,0,1),(1,1,0),(1,1,1)], nargs="*", type=tuple,help='list of Miller indices to check during the surface stability analysis, i.e. --checkSurfs')  #(1,1,1),
-        #parser.add_argument("-mlist","--miller_list", default="[1 1 1], [1 1 0], [1 0 0],[0 1 0]", nargs="*", type=str,help='list of Miller indices to check during the surface stability analysis, i.e. --checkSurfs')
-        parser.add_argument("-sep_init","--sep_init"  ,default=1.0,type=float,help='Initial interface separation to be used in seperation convergence test (--convSep), def: 1.0 A')
-        parser.add_argument("-sep_final","--sep_final",default=3.0,type=float,help='Final interface separation to be used in seperation convergence test (--convSep), def: 3.0 A')
-        parser.add_argument("-sep_step","--sep_step"  ,default=0.25,type=float,help='Step size in interface separation to be used in seperation convergence test (--convSep), def: 0.25 A')
-        parser.add_argument("-lay_min","--lay_min"  ,default=2,type=int,help='Min layers to include n layer thickness convergence test (--convLay), def: 2 layers')
-        parser.add_argument("-lay_max","--lay_max"  ,default=8,type=int,help='Max layers to include n layer thickness convergence test (--convLay), def: 8 layers')
-        parser.add_argument("-hor_steps","--hor_steps"  ,default=[0.25,0.25],nargs=2,type=float,help='Test the energy as a function of horizontal translations of bottom layer in x and y directions (--test_hori), def: [0.25, 0.25]]')
-
-
+        #Convergence tests related keywords
+        parser.add_argument("-tsur", "-test_surf", "--checkSurfs", default=False, action="store_true", help="To check the stability of different surfaces for the given materials. Def: No")
+        parser.add_argument("-tlay", "-test_layer", "--convLayers", default=False, action="store_true", help="To run a convergence test on the layer thickness for slab(s) generated. Def: No")
+        parser.add_argument("-tsep", "-test_sep", "--convSep", default=False, action="store_true", help="To run a convergence test on the interlayer separation for the interface generated. Def: No")
+        parser.add_argument("-thor", "-test_hori", "--test_hori", default=False, action="store_true", help="To run a convergence test on the relative placement of slabs w.r.t. each other for the interface generated. Def: No")
+        parser.add_argument("-mlist", "--miller_list", default=[(1,0,0),(0,1,0),(0,0,1),(1,1,0),(1,1,1)], nargs="*", type=tuple, help='list of Miller indices to check during the surface stability analysis, i.e. --checkSurfs')  #(1,1,1),
+        parser.add_argument("-sep_init", "--sep_init", default=1.0, type=float, help='Initial interface separation to be used in seperation convergence test (--convSep), def: 1.0 A')
+        parser.add_argument("-sep_final", "--sep_final", default=3.0, type=float, help='Final interface separation to be used in seperation convergence test (--convSep), def: 3.0 A')
+        parser.add_argument("-sep_step", "--sep_step", default=0.25, type=float, help='Step size in interface separation to be used in seperation convergence test (--convSep), def: 0.25 A')
+        parser.add_argument("-lay_min", "--lay_min", default=2, type=int, help='Min layers to include n layer thickness convergence test (--convLay), def: 2 layers')
+        parser.add_argument("-lay_max", "--lay_max", default=8, type=int, help='Max layers to include n layer thickness convergence test (--convLay), def: 8 layers')
+        parser.add_argument("-hor_steps", "--hor_steps", default=[0.25,0.25], nargs=2, type=float, help='Horizontal translations (relative to lattice vectors) of bottom layer in x and y directions for slab placement test (--test_hori), def: [0.25, 0.25]]')
 
         #Calculation related keywords
-        parser.add_argument("-prog","--prog",choices=['castep','vasp','ase'],required=1,help="Code to be used: CASTEP, VASP or ASE (LJ/Morse, default) (def)")
-        parser.add_argument('-xc','--xc', type=str,required=False, default='PBE',help='Exchange correlation functional to use (pseudopots will be selected accordingly, e.g. LDA, PBE,PBEsol, etc. Def: PBE')
-        parser.add_argument('-ec','--encut', type=float,required=False, default=520,help='Cutoff energy for the planewaves Def: 520 eV')
-        parser.add_argument('-kp_sp','--kpspacing', type=float,required=False, default=0.32,help='KP grid spacing, Def: 0.05 * 2 pi = 0.32 1/A')
-        parser.add_argument('-kp_gr','--kpgrid', type=str,required=False, default=None,help='KP grid dimensions (Using KP spacing is recommended), Def: None')
-        parser.add_argument('-gamma','--gamma_only', default=False,action='store_true', help='Set KP grid to 1 1 1 and use only the Gamma point for surface slabs and interface. This switches on the gamma_oonly version of VASP. Default: srun is used')
-        parser.add_argument('-sig','--sigma', type=float,required=False, default=0.05,help='Gaussian smearing width, Def:0.05 eV')
-        parser.add_argument("-mgm","--magmoms", default=None, nargs="*", required=False, help="Magnetic moments for a collinear calculation. Eg, 'Fe 5.0 Nb 0.6 O 0.6' Def.: None. If a defined element is not present in the POSCAR, no MAGMOM will be set for it.")
-        parser.add_argument("-hubU", "--hubU", type=str,nargs="*",help="For defining the Hubbard U parameters (in eV) for specific atom and orbital types, e.g. -hubU Fe d 2.7, Sm f 6.1")
-        parser.add_argument('-ase_pot','--ase_pot', type=str,required=False, default='LJ',choices=['LJ','Morse','EMT'], help="Potential type to be used through the ASE infrastructure, only relevant when using -prog 'ASE'. Def: LJ")
-        parser.add_argument('-ase_fmax','--ase_fmax', type=float,required=False, default=0.05, help='Force convergence criterion when using the ASE built-in geometry optimiser. Def: 0.05 eV/A')
-        parser.add_argument('-ase_gsteps','--ase_gsteps', type=int,required=False, default=200, help='Max number of BFGS steps allowed in the ASE built-in geometry optimiser. Def: 200 geometry steps')
-        parser.add_argument('-mp','-makepotcar','--makepotcar', default=False,action='store_true', help='to compile POTCAR (for VASP) using actual atomic content. The environment variable ($VASP_PP_PATH) should be defined beforehand. Default: False.')
-        parser.add_argument('--potcarxc', default="potpaw_PBE",type=str,choices=ppdirs,help='XC functional to use in making of POTCAR. Def: potpaw_PBE')
-        parser.add_argument('-cparam', '--castep_param',default="input.param",type=str,help='CASTEP parameter file to read (optional). Def: input.param')
-        parser.add_argument('-ccell', '--castep_cell',default="input.cell",type=str,help='CASTEP cell file to read (optional). Def: input.cell')
-        parser.add_argument('-cpp', '--castep_PP',default="OTF",type=str,help='CASTEP pseudopotential (PP, options are OTF, 00PBE, etc.). Def: OTF')
+        parser.add_argument("-prog", "--prog", choices=['castep','vasp','ase'], required=1, help="Code to be used: CASTEP, VASP or ASE (LJ/Morse, default) (def)")
+        parser.add_argument("-xc", "--xc", default='PBE', type=str, required=False, help='Exchange correlation functional to use (pseudopots will be selected accordingly, e.g. LDA, PBE,PBEsol, etc. Def: PBE')
+        parser.add_argument("-ec", "--encut", default=520, type=float, required=False, help='Cutoff energy for the planewaves Def: 520 eV')
+        parser.add_argument("-kp_sp", "--kpspacing", default=0.32, type=float, required=False, help='KP grid spacing, Def: 0.05 * 2 pi = 0.32 1/A')
+        parser.add_argument("-kp_gr", "--kpgrid", default=None, type=str, required=False, help='KP grid dimensions (Using KP spacing is recommended), Def: None')
+        parser.add_argument("-gamma", "--gamma_only", default=False, action='store_true', help='Set KP grid to 1 1 1 and use only the Gamma point for surface slabs and interface. This switches on the gamma_oonly version of VASP. Default: srun is used')
+        parser.add_argument("-sig", "--sigma", default=0.05, type=float, required=False, help='Gaussian smearing width, Def:0.05 eV')
+        parser.add_argument("-mgm", "--magmoms", default=None, nargs="*", required=False, help="Magnetic moments for a collinear calculation. Eg, 'Fe 5.0 Nb 0.6 O 0.6' Def.: None. If a defined element is not present in the POSCAR, no MAGMOM will be set for it.")
+        parser.add_argument("-hubU", "--hubU", type=str, nargs="*", help="For defining the Hubbard U parameters (in eV) for specific atom and orbital types, e.g. -hubU Fe d 2.7, Sm f 6.1")
+        parser.add_argument("-ase_pot", "--ase_pot", default='LJ', type=str, required=False, choices=['LJ','Morse','EMT'], help="Potential type to be used through the ASE infrastructure, only relevant when using -prog 'ASE'. Def: LJ")
+        parser.add_argument("-ase_fmax", "--ase_fmax", default=0.05, type=float, required=False, help='Force convergence criterion when using the ASE built-in geometry optimiser. Def: 0.05 eV/A')
+        parser.add_argument("-ase_gsteps", "--ase_gsteps", default=200, type=int, required=False, help='Max number of BFGS steps allowed in the ASE built-in geometry optimiser. Def: 200 geometry steps')
+        parser.add_argument("-mp", "-makepotcar", "--makepotcar", default=False, action='store_true', help='to compile POTCAR (for VASP) using actual atomic content. The environment variable ($VASP_PP_PATH) should be defined beforehand. Default: False.')
+        parser.add_argument("--potcarxc", default="potpaw_PBE", type=str, choices=ppdirs, help='XC functional to use in making of POTCAR. Def: potpaw_PBE')
+        parser.add_argument("-cparam", "--castep_param", default="input.param", type=str, help='CASTEP parameter file to read (optional). Def: input.param')
+        parser.add_argument("-ccell", "--castep_cell",default="input.cell", type=str, help='CASTEP cell file to read (optional). Def: input.cell')
+        parser.add_argument("-cpp", "--castep_PP", default="OTF", type=str, help='CASTEP pseudopotential (PP, options are OTF, 00PBE, etc.). Def: OTF')
         
-
         #TODO: add support for  KPGrid determination
         
         #Parallelisation related
         #TODO: construct the CASTEP/VASP exe using this info, rather than relying on reading the environmen variables.
-        parser.add_argument('-np', '--nprocs',type=int, default=32,help="No of processes to start for each CASTEP/VASP calculation through srun/mpirun. Def:32")
-        parser.add_argument('-nt', '--ntasks',type=int, default=1,help="No of CASTEP/VASP tasks to run simultaneously. Def:1")
-        parser.add_argument('-nn', '--nnodes',type=int, default=1,help="No of nodes to run CASTEP/VASP runs through srun. Def:1")
-        parser.add_argument('-mpi','--mpirun', default=False,action='store_true', help='Use mpirun for parallel runs. Default: srun is used')
-        parser.add_argument('-vexe','--vexe', type=str,required=False, default='vasp_std',help='Vasp exectuable. Def: vasp_std')
-        parser.add_argument('-mpiargs','--mpiargs', type=str,required=False, default='',help='Vasp exectuable. No default value. "--partition=solbatsims" needed on zx81')
+        parser.add_argument("-np", "--nprocs", default=32, type=int, help="No of processes to start for each CASTEP/VASP calculation through srun/mpirun. Def:32")
+        parser.add_argument("-nt", "--ntasks", default=1, type=int, help="No of CASTEP/VASP tasks to run simultaneously. Def:1")
+        parser.add_argument("-nn", "--nnodes", default=1, type=int, help="No of nodes to run CASTEP/VASP runs through srun. Def:1")
+        parser.add_argument('-mpi','--mpirun', default=False, action='store_true', help='Use mpirun for parallel runs. Default: srun is used')
+        parser.add_argument("-vexe", "--vexe", default='vasp_std', type=str, required=False, help='Vasp exectuable. Def: vasp_std')
+        parser.add_argument("-mpiargs", "--mpiargs", default='', type=str, required=False, help='Vasp exectuable. No default value. "--partition=solbatsims" needed on zx81')
 
         #Other general keywords
-        parser.add_argument("-dry", "--dry",action="store_true",default=False,help="Make a dry run, do not run CASTEP/VASP calculation. Good for checking the slabs and the interfacing algorithm.")
-        parser.add_argument("-view", "--view",action="store_true",default=False,help="To view the generated structures.")
-        parser.add_argument('-v','--verb', default=False,action='store_true', help='Verbose output. Default: False.')
-        parser.add_argument('-quick','--quick', default=False,action='store_true', help='Setup a quick test run using ASE/LJ potentials to check functionality. Default: False.')
+        parser.add_argument("-dry", "--dry", default=False, action="store_true", help="Make a dry run, do not run CASTEP/VASP calculation. Good for checking the slabs and the interfacing algorithm.")
+        parser.add_argument("-view", "--view", default=False, action="store_true", help="To view the generated structures.")
+        parser.add_argument("-v", "--verb", default=False, action='store_true', help='Verbose output. Default: False.')
+        parser.add_argument("-quick", "--quick", default=False, action='store_true', help='Setup a quick test run using ASE/LJ potentials to check functionality. Default: False.')
 
 
         #TODO: Add the -restart/overwrite options for when bulk1/2,slab1/2 folders exist. 
@@ -1107,7 +1101,7 @@ if __name__== '__main__':
         ######################
         # Alignment of Slabs #
         ######################
-                       print("\nAligning the two slabs...");stdout.flush()
+                        print("\nAligning the two slabs...");stdout.flush()
                         slab1,slab2=slab_aligner(slab1,slab2,L,Lmax,Lstep,ptol,T,atoms1,atoms2)
                         slab1.name='slab1_cuts%s'%indices_le_s1[i]
                         slab2.name='slab2_cuts%s'%indices_le_s2[j]
