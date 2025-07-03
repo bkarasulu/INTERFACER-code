@@ -20,6 +20,12 @@ from ase.utils.structure_comparator import SymmetryEquivalenceCheck
 from spglib import find_primitive, get_symmetry
 from tqdm import tqdm
 
+# pymatgen modules for symmetric surfaces
+from pymatgen.core import Structure, Lattice
+from pymatgen.core.surface import SlabGenerator, Slab
+from pymatgen.io.ase import AseAtomsAdaptor
+from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
+
 #Import other functions from the INTERFACER package
 #from tools.builder import *
 from tools.external import *
@@ -152,121 +158,173 @@ def wrap_coords(slab):
     slab.set_scaled_positions(sp)
     return slab
 
-### Code for symmetric surfaces by Julian Holland: https://github.com/julianholland/Symmetric-Surface-Finder
+### Code for symmetric surfaces ###
+# Code for symmetric surfaces by Julian Holland: https://github.com/julianholland/Symmetric-Surface-Finder
 
-def find_smallest_sym_surface(surf, surface_layers, vacuum, position_accuracy):
-    """For any given surface this function will produce a symmetric surface should one exist"""
-    cell = surf.cell  # find cell parameters
-    frac_cell_value = (
-        ((cell[2, 2] - 2 * vacuum) * surface_layers) / (surface_layers + 1)
-    ) + vacuum  # find a value for minimum space we want to explore for this cut
-    z_coords = surf.positions[:, 2]  # create list of all z-coords
-    unique_surfaces = np.unique(
-        z_coords.round(decimals=position_accuracy)
-    )  # find all unique cuts
-    mask = (
-        unique_surfaces > frac_cell_value)  # find unique cuts for region we wish to explore
-    frac_unique_surfaces = unique_surfaces[mask]
-    for i in range(len(frac_unique_surfaces)):
-        mask = z_coords < frac_unique_surfaces[i]
-        new_surf = surf[mask]
-        new_surf.center()
-        rotational_symmetry = get_symmetry(new_surf, symprec=1e-5)["rotations"]
-        z_rotational_operations = np.stack(rotational_symmetry)
-        if np.any(z_rotational_operations[:, 2, 2] == -1):
-            sym_surf = new_surf
-            sym_surf.center(vacuum=vacuum, axis=2)
-            break
-        else:
-            sym_surf = False
-    return sym_surf
+# def find_smallest_sym_surface(surf, surface_layers, vacuum, position_accuracy):
+#     """For any given surface this function will produce a symmetric surface should one exist"""
+#     cell = surf.cell  # find cell parameters
+#     frac_cell_value = (
+#         ((cell[2, 2] - 2 * vacuum) * surface_layers) / (surface_layers + 1)
+#     ) + vacuum  # find a value for minimum space we want to explore for this cut
+#     z_coords = surf.positions[:, 2]  # create list of all z-coords
+#     unique_surfaces = np.unique(
+#         z_coords.round(decimals=position_accuracy)
+#     )  # find all unique cuts
+#     mask = (
+#         unique_surfaces > frac_cell_value)  # find unique cuts for region we wish to explore
+#     frac_unique_surfaces = unique_surfaces[mask]
+#     for i in range(len(frac_unique_surfaces)):
+#         mask = z_coords < frac_unique_surfaces[i]
+#         new_surf = surf[mask]
+#         new_surf.center()
+#         rotational_symmetry = get_symmetry(new_surf, symprec=1e-5)["rotations"]
+#         z_rotational_operations = np.stack(rotational_symmetry)
+#         if np.any(z_rotational_operations[:, 2, 2] == -1):
+#             sym_surf = new_surf
+#             sym_surf.center(vacuum=vacuum, axis=2)
+#             break
+#         else:
+#             sym_surf = False
+#     return sym_surf
 
-def make_surface(thickness, miller_plane, bulk, vacuum):
-    """Create a surface with 10 angstrom of vacuum provided a bulk, miller plane and layer thickness"""
-    surf = surface(bulk, miller_plane, thickness)
-    surf.center(vacuum=vacuum, axis=2)  # centre the surface and add vacuum
-    single_layer_z_length = (surf.cell[2, 2] - (2 * vacuum)) / thickness
-    return surf, single_layer_z_length
+# def make_surface(thickness, miller_plane, bulk, vacuum):
+#     """Create a surface with 10 angstrom of vacuum provided a bulk, miller plane and layer thickness"""
+#     surf = surface(bulk, miller_plane, thickness)
+#     surf.center(vacuum=vacuum, axis=2)  # centre the surface and add vacuum
+#     single_layer_z_length = (surf.cell[2, 2] - (2 * vacuum)) / thickness
+#     return surf, single_layer_z_length
 
-def permute_surface(bulk, miller_plane, minimum_thickness, vacuum):
-    """Permutes a given surface for all unique z-axis coordinates and creates an xyz file"""
-    position_accuracy = 5  # modify this depending on how accurate your atomic measurements are. A higher value generally gives more surfaces as less atoms lie on the 'same' z-plane
-    surface_layers = 0
-    nudge = 10 ** (-1 * position_accuracy)
-    dummy_surf, single_cell_z_length = make_surface(1, miller_plane, bulk, vacuum) # get the single cell value with vacuum
-    min_thick_w_buffer = minimum_thickness  # add a buffer to make it more likely that we don't go less than the desired minimum thickness
-    thickness_check=0
-    while thickness_check <= min_thick_w_buffer: # create a sufficiently thick surface
-        surface_layers += 1
-        surf, single_cell_z_length = make_surface(
-            thickness=(surface_layers + 2),
-            miller_plane=miller_plane,
-            bulk=bulk,
-            vacuum=vacuum,
-        )
-        thickness_check = ((single_cell_z_length) * (surface_layers))
+# def permute_surface(bulk, miller_plane, minimum_thickness, vacuum):
+#     """Permutes a given surface for all unique z-axis coordinates and creates an xyz file"""
+#     position_accuracy = 5  # modify this depending on how accurate your atomic measurements are. A higher value generally gives more surfaces as less atoms lie on the 'same' z-plane
+#     surface_layers = 0
+#     nudge = 10 ** (-1 * position_accuracy)
+#     dummy_surf, single_cell_z_length = make_surface(1, miller_plane, bulk, vacuum) # get the single cell value with vacuum
+#     min_thick_w_buffer = minimum_thickness  # add a buffer to make it more likely that we don't go less than the desired minimum thickness
+#     thickness_check=0
+#     while thickness_check <= min_thick_w_buffer: # create a sufficiently thick surface
+#         surface_layers += 1
+#         surf, single_cell_z_length = make_surface(
+#             thickness=(surface_layers + 2),
+#             miller_plane=miller_plane,
+#             bulk=bulk,
+#             vacuum=vacuum,
+#         )
+#         thickness_check = ((single_cell_z_length) * (surface_layers))
 
-    z_coords = surf.positions[:, 2]  # create list of all z-coords
-    unique_surfaces = np.unique(
-        z_coords.round(decimals=position_accuracy)
-    )  # create list of all unique z coordinates
-    mask = unique_surfaces < single_cell_z_length + vacuum
-    single_cell_unique_surfaces = unique_surfaces[mask]
+#     z_coords = surf.positions[:, 2]  # create list of all z-coords
+#     unique_surfaces = np.unique(
+#         z_coords.round(decimals=position_accuracy)
+#     )  # create list of all unique z coordinates
+#     mask = unique_surfaces < single_cell_z_length + vacuum
+#     single_cell_unique_surfaces = unique_surfaces[mask]
+#     surf_list = []
+#     surf_lengths_list = []
+#     print(
+#         "There are "
+#         + str(len(single_cell_unique_surfaces))
+#         + " unique surface cuts for the "
+#         + str(miller_plane)
+#         + " miller plane. One layer of this surface is "
+#         + str(single_cell_z_length.round(position_accuracy))
+#         + " Angstrom thick"
+#     )
+#     for i in tqdm(range(len(single_cell_unique_surfaces))):
+#         # define where we cut the surface on the left hand side
+#         surf_cut = (unique_surfaces[i] + nudge) 
+#         # integer value of number of unique values required to maintain minimum thickness
+#         ensure_thickness = int(i + (((surface_layers + 2 - 1) / (surface_layers + 2) ) * len(unique_surfaces))) 
+#         # define where we cut the surface on the right hand side
+#         surf_term = (unique_surfaces[ensure_thickness] + nudge)  
+#         # create T/F matrix for appropriate slice
+#         newmask = (z_coords > surf_cut) & (z_coords < surf_term)  
+#         cut_surf = surf[newmask]  # apply mask to surface
+#         cut_surf.center(vacuum=vacuum, axis=2)  # centre and keep vacuum the same
+
+#         # find symmetric surfaces
+#         sym_surf = find_smallest_sym_surface(
+#             cut_surf, surface_layers, vacuum, position_accuracy)  
+#         if sym_surf == False:
+#             continue
+#         surf_lengths_list.append(sym_surf.cell[2, 2] - (2 * vacuum))
+#         if check_surf_unique(surf_list, sym_surf, position_accuracy) > 0:
+#             continue
+#         surf_list.append(sym_surf)
+#     if len(surf_list) == 0:
+#         print("Found no symmetric structures for this Miller plane.\n")
+#     else:
+#         print(
+#             "Found "
+#             + str(len(surf_list))
+#             + " unique, symmetric surfaces for "
+#             + str(miller_plane)
+#             + " between "
+#             + str(min(surf_lengths_list).round(decimals=position_accuracy))
+#             + " and "
+#             + str(max(surf_lengths_list).round(decimals=position_accuracy))
+#             + " Angstrom thick ("
+#             + str(surface_layers)
+#             + " to "
+#             + str(surface_layers + 1 )
+#             + " layers thick)"
+#             + "\n" 
+#         )
+#     return surf_list
+
+def permute_surface(bulk_ase, miller_plane, minimum_thickness, vacuum):
+    """Creates a symmetric surface using pymatgen's SlabGenerator.
+    Args:
+        bulk_ase (ase.Atoms): The bulk structure in ASE format.
+        miller_plane (tuple): The Miller indices of the surface.
+        minimum_thickness (float): The minimum thickness of the slab.
+        vacuum (float): The vacuum size to add to the slab. 
+    Returns:
+        list: A list of unique, symmetric surfaces in ASE format."""
+
+    position_accuracy = 5
+
+    # convert ase bulk to pymatgen structure
+    bulk =  AseAtomsAdaptor.get_structure(bulk_ase) 
+
+    # create supercell, which the number of atoms of the slabs will be compared to
+    supercell = bulk.copy()
+    supercell = supercell.make_supercell([1,1,2])
+
+    # create slab generator objects with bulk structure and supercell
+    slabgen = SlabGenerator(bulk, miller_index=miller_plane, min_slab_size=minimum_thickness, min_vacuum_size=vacuum, center_slab=True)
+    slabgen_super = SlabGenerator(supercell, miller_index=miller_plane, min_slab_size=minimum_thickness*2, min_vacuum_size=vacuum, center_slab=True)
+    slabs_super = slabgen_super.get_slabs()
+
+    # create symmetric slabs
+    # need to use the supercell slab with the bulk SlabGeneratore object 
+    # to ensure that the number of atoms in the non-symmetric slab is large enough
     surf_list = []
-    surf_lengths_list = []
-    print(
-        "There are "
-        + str(len(single_cell_unique_surfaces))
-        + " unique surface cuts for the "
-        + str(miller_plane)
-        + " miller plane. One layer of this surface is "
-        + str(single_cell_z_length.round(position_accuracy))
-        + " Angstrom thick"
-    )
-    for i in tqdm(range(len(single_cell_unique_surfaces))):
-        # define where we cut the surface on the left hand side
-        surf_cut = (unique_surfaces[i] + nudge) 
-        # integer value of number of unique values required to maintain minimum thickness
-        ensure_thickness = int(i + (((surface_layers + 2 - 1) / (surface_layers + 2) ) * len(unique_surfaces))) 
-        # define where we cut the surface on the right hand side
-        surf_term = (unique_surfaces[ensure_thickness] + nudge)  
-        # create T/F matrix for appropriate slice
-        newmask = (z_coords > surf_cut) & (z_coords < surf_term)  
-        cut_surf = surf[newmask]  # apply mask to surface
-        cut_surf.center(vacuum=vacuum, axis=2)  # centre and keep vacuum the same
-
-        # find symmetric surfaces
-        sym_surf = find_smallest_sym_surface(
-            cut_surf, surface_layers, vacuum, position_accuracy)  
-        if sym_surf == False:
-            continue
-        surf_lengths_list.append(sym_surf.cell[2, 2] - (2 * vacuum))
-        if check_surf_unique(surf_list, sym_surf, position_accuracy) > 0:
-            continue
-        surf_list.append(sym_surf)
+    for i, slab in enumerate (slabs_super):
+        sym_slabs = slabgen.nonstoichiometric_symmetrized_slab(slab)
+        for j, sym_slab in enumerate(sym_slabs):
+            if sym_slab.is_symmetric():
+                sym_slab_ase = AseAtomsAdaptor.get_atoms(sym_slab)
+                # check if the slab is unique
+                if check_surf_unique(surf_list, sym_slab_ase, position_accuracy) > 0:
+                    continue
+                surf_list.append(sym_slab_ase)
     if len(surf_list) == 0:
-        print("Found no symmetric structures for this Miller plane.\n")
+        print("Found no symmetric structures for this Miller plane.\n");stdout.flush()
     else:
-        print(
-            "Found "
-            + str(len(surf_list))
-            + " unique, symmetric surfaces for "
-            + str(miller_plane)
-            + " between "
-            + str(min(surf_lengths_list).round(decimals=position_accuracy))
-            + " and "
-            + str(max(surf_lengths_list).round(decimals=position_accuracy))
-            + " Angstrom thick ("
-            + str(surface_layers)
-            + " to "
-            + str(surface_layers + 1 )
-            + " layers thick)"
-            + "\n" 
-        )
+        print(f"Found {str(len(surf_list))} unique, symmetric surfaces for {str(miller_plane)} \n");stdout.flush()
+        
     return surf_list
 
 def check_surf_unique(surf_list, surf, position_accuracy):
-    """Checks all surfaces in a given directory are unique"""
+    """Checks all surfaces in a given directory are unique.
+    Args:
+        surf_list (list): List of existing summetric surfaces to compare to.
+        surf (ase.Atoms): The surface to check for uniqueness.
+        position_accuracy (int): The accuracy for the get_symmetry spglib function.
+    Returns:
+        int: 1 if the surface is unique, 0 if it is not."""
+    
     symprec=1*10**-(position_accuracy)
     if len(surf_list) == 0:
         return 0
@@ -274,9 +332,9 @@ def check_surf_unique(surf_list, surf, position_accuracy):
         if surf_list[i].get_chemical_formula(
             mode="metal", empirical=False
         ) == surf.get_chemical_formula(mode="metal", empirical=False):
-            new_surf_sym = get_symmetry(surf, symprec=symprec)
-            old_surf_sym = get_symmetry(surf_list
-            [i], symprec=symprec)
+            new_surf_sym = get_symmetry((surf.cell, surf.get_scaled_positions(), surf.get_atomic_numbers), symprec=symprec)
+            old_surf_sym = get_symmetry((surf_list[i].cell, surf_list[i].get_scaled_positions(), surf_list[i].get_atomic_numbers()), 
+                                        symprec=symprec)
             if old_surf_sym["rotations"].all() == new_surf_sym["rotations"].all():
                 return 1
             else:
