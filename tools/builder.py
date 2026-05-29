@@ -288,23 +288,26 @@ def permute_surface(bulk_ase, miller_plane, minimum_thickness, vacuum):
     bulk =  AseAtomsAdaptor.get_structure(bulk_ase) 
 
     # create supercell, which the number of atoms of the slabs will be compared to
-    supercell = bulk.copy()
-    supercell = supercell.make_supercell([1,1,2])
+    # supercell = bulk.copy()
+    # supercell = supercell.make_supercell([1,1,2])
 
     # create slab generator objects with bulk structure and supercell
-    slabgen = SlabGenerator(bulk, miller_index=miller_plane, min_slab_size=minimum_thickness, min_vacuum_size=vacuum, center_slab=True)
-    slabgen_super = SlabGenerator(supercell, miller_index=miller_plane, min_slab_size=minimum_thickness*2, min_vacuum_size=vacuum, center_slab=True)
-    slabs_super = slabgen_super.get_slabs()
+    slabgen = SlabGenerator(bulk, miller_index=miller_plane, min_slab_size=minimum_thickness*2, min_vacuum_size=vacuum, center_slab=True, primitive=False)
+    # slabgen_super = SlabGenerator(supercell, miller_index=miller_plane, min_slab_size=minimum_thickness*2, min_vacuum_size=vacuum, center_slab=True)
+    slabs = slabgen.get_slabs()
 
     # create symmetric slabs
     # need to use the supercell slab with the bulk SlabGeneratore object 
     # to ensure that the number of atoms in the non-symmetric slab is large enough
     surf_list = []
-    for i, slab in enumerate (slabs_super):
+    for i, slab in enumerate (slabs):
         sym_slabs = slabgen.nonstoichiometric_symmetrized_slab(slab)
         for j, sym_slab in enumerate(sym_slabs):
             if sym_slab.is_symmetric():
                 sym_slab_ase = AseAtomsAdaptor.get_atoms(sym_slab)
+                # checl that slab has minimum thickness
+                if sym_slab_ase.cell.cellpar()[2] - 2*vacuum <= minimum_thickness:
+                    continue
                 # check if the slab is unique
                 if check_surf_unique(surf_list, sym_slab_ase, position_accuracy) > 0:
                     continue
@@ -332,7 +335,7 @@ def check_surf_unique(surf_list, surf, position_accuracy):
         if surf_list[i].get_chemical_formula(
             mode="metal", empirical=False
         ) == surf.get_chemical_formula(mode="metal", empirical=False):
-            new_surf_sym = get_symmetry((surf.cell, surf.get_scaled_positions(), surf.get_atomic_numbers), symprec=symprec)
+            new_surf_sym = get_symmetry((surf.cell, surf.get_scaled_positions(), surf.get_atomic_numbers()), symprec=symprec)
             old_surf_sym = get_symmetry((surf_list[i].cell, surf_list[i].get_scaled_positions(), surf_list[i].get_atomic_numbers()), 
                                         symprec=symprec)
             if old_surf_sym["rotations"].all() == new_surf_sym["rotations"].all():
