@@ -20,6 +20,15 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest"]
+# machine-learning potentials (-prog mlip --mlip <name>); install the ones you need
+mace = ["mace-torch"]
+chgnet = ["chgnet"]
+matgl = ["matgl"]
+sevennet = ["sevenn"]
+orb = ["orb-models"]
+fairchem = ["fairchem-core"]
+nequip = ["nequip"]
+allegro = ["nequip-allegro"]
 
 [project.scripts]
 interfacer = "interfacer.cli:main"

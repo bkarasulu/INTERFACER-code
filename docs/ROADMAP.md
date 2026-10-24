@@ -107,6 +107,10 @@ Pipeline restarts become uniform for every engine (skip a step when its output a
   - Shared ASE optimiser with cell relaxation, frozen bottom layers and a choice of optimiser.
   - New CLI options: `--optimiser`, `--relax_cell_bulk`, `--fix_layers`, `--outdir`.
   - 51 tests pass.
+- **Phase 6 done:**
+  - `interfacer.calculators.mlip` and `-prog mlip`: MACE, MACE-OFF, CHGNet, MatGL/M3GNet, SevenNet, ORB, fairchem/UMA, NequIP and Allegro, plus `custom:module:function` for any ASE calculator.
+  - The model is loaded once; options `--mlip`, `--mlip_model`, `--device`, `--mlip_kwargs`; bulk cells are relaxed by default.
+  - See `mlip.md`. Tested for real with MACE-MP-0, and with mock packages for the other backends; 66 tests pass.
 
 ## Roadmap (phases, each one or more commits on `claude/exciting-hamilton-eunp54`)
 1. **Housekeeping.** Merge `symINTERFACER`. Remove `__pycache__` and the heavy VASP files (POTCAR, WAVECAR, CHG*, DOSCAR, EIGENVAL, vasprun.xml, PCDAT) from tracking, and add them to `.gitignore`. Finish the bug audit and record it in `docs/known_issues.md`.

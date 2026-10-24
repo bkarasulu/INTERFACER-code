@@ -6,6 +6,7 @@ from ase.constraints import FixAtoms
 from .base import CalcSettings, Engine
 from .castep import call_castep
 from .classical import classical_calculator
+from .mlip import lazy_calculator_factory
 from .optimise import bottom_layer_indices, relax
 from .vasp import call_vasp
 
@@ -76,19 +77,39 @@ class AseEngine(Engine):
         if not opt:
             print("Getting SP energy using ASE/%s" % self.label)
             atoms.calc = calc
-            return atoms.get_potential_energy(), atoms
-        cell = bool(relax_cell and s.relax_cell_bulk)
-        print("Optimising the %s structure using ASE/%s%s" % (formula, self.label, " (with cell relaxation)" if cell else ""))
-        traj = os.path.join(s.outdir, "%s_opt.traj" % os.path.basename(getattr(atoms, "name", name) or name)) if s.outdir else None
-        return relax(atoms, calc, fmax=s.fmax, steps=s.steps, optimiser=s.optimiser, relax_cell=cell,
-                     fix_bottom_layers=fix_bottom_layers, trajectory=traj)
+            E = atoms.get_potential_energy()
+        else:
+            cell = bool(relax_cell and s.relax_cell_bulk)
+            print("Optimising the %s structure using ASE/%s%s" % (formula, self.label, " (with cell relaxation)" if cell else ""))
+            traj = os.path.join(s.outdir, "%s_opt.traj" % os.path.basename(getattr(atoms, "name", name) or name)) if s.outdir else None
+            E, atoms = relax(atoms, calc, fmax=s.fmax, steps=s.steps, optimiser=s.optimiser, relax_cell=cell,
+                             fix_bottom_layers=fix_bottom_layers, trajectory=traj)
+        _freeze_results(atoms, calc)
+        return E, atoms
 
 
-ENGINES = ("vasp", "castep", "ase")
+def _freeze_results(atoms, calc):
+    """Replace the (possibly shared) calculator by a SinglePointCalculator holding this structure's results, so that
+    the results stay attached to the structure when the calculator is reused for other structures (e.g. an ML model
+    that is loaded once per workflow)."""
+    from ase.calculators.singlepoint import SinglePointCalculator
+    res = {}
+    for key, val in getattr(calc, "results", {}).items():
+        if key in ("energy", "free_energy", "stress"):
+            res[key] = val
+        elif key in ("forces", "magmoms") and len(val) == len(atoms):
+            res[key] = val
+    if "energy" not in res:
+        res["energy"] = atoms.get_potential_energy()
+    atoms.calc = SinglePointCalculator(atoms, **res)
+
+
+ENGINES = ("vasp", "castep", "ase", "mlip")
 
 
 def get_engine(prog, settings=None):
-    """Return the engine for a code name ('vasp', 'castep' or 'ase'; for 'ase' the settings.ase_pot potential is used)."""
+    """Return the engine for a code name: 'vasp', 'castep', 'ase' (the simple potential settings.ase_pot) or
+    'mlip' (the machine-learning potential settings.mlip with settings.mlip_model on settings.device)."""
     settings = settings if settings is not None else CalcSettings()
     prog = prog.lower()
     if prog == "vasp":
@@ -97,4 +118,10 @@ def get_engine(prog, settings=None):
         return CastepEngine(settings)
     if prog == "ase":
         return AseEngine(lambda: classical_calculator(settings.ase_pot), label=settings.ase_pot, settings=settings)
+    if prog == "mlip":
+        factory = lazy_calculator_factory(settings.mlip, model=settings.mlip_model, device=settings.device, **settings.mlip_kwargs)
+        label = settings.mlip + ("/%s" % settings.mlip_model if settings.mlip_model else "")
+        engine = AseEngine(factory, label=label, settings=settings)
+        engine.name = "mlip"
+        return engine
     raise ValueError("Unknown code '%s'; choose from %s" % (prog, ", ".join(ENGINES)))

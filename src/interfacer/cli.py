@@ -22,6 +22,7 @@ from .analysis import calculate_SFE, find_prim, get_fu, misfit, surf_area
 from .builder import make_interface, make_slab, permute_surface, slab_aligner, standardise_slab
 from .calculators import CalcSettings, get_engine
 from .calculators.classical import POTENTIALS
+from .calculators.mlip import BACKENDS as MLIP_BACKENDS
 from .calculators.optimise import OPTIMISERS
 from .convergence import cfactor, check_surfaces, checkHorizontal, conv_layers, convSep, set_default_engine
 from .io import backup_output, write_struct
@@ -108,7 +109,7 @@ def build_parser():
     parser.add_argument("-hor_steps", "--hor_steps", default=[0.25,0.25], nargs=2, type=float, help='Horizontal translations (relative to lattice vectors) of bottom layer in x and y directions for slab placement test (--test_hori), def: [0.25, 0.25]]')
 
     #Calculation related keywords
-    parser.add_argument("-prog", "--prog", choices=['castep','vasp','ase'], type=str.lower, required=1, help="Code to be used: CASTEP, VASP or ASE (LJ/Morse/EMT)")
+    parser.add_argument("-prog", "--prog", choices=['castep','vasp','ase','mlip'], type=str.lower, required=1, help="Code to be used: CASTEP, VASP, ASE (simple LJ/Morse/EMT potentials, see -ase_pot) or MLIP (machine-learning potentials, see --mlip)")
     parser.add_argument("-xc", "--xc", default='PBE', type=str, required=False, help='Exchange correlation functional to use (pseudopots will be selected accordingly, e.g. LDA, PBE,PBEsol, etc. Def: PBE')
     parser.add_argument("-ec", "--encut", default=520, type=float, required=False, help='Cutoff energy for the planewaves Def: 520 eV')
     parser.add_argument("-kp_sp", "--kpspacing", default=0.32, type=float, required=False, help='KP grid spacing, Def: 0.05 * 2 pi = 0.32 1/A')
@@ -144,7 +145,14 @@ def build_parser():
 
     #Options added in the refactored version (ASE-based engines)
     parser.add_argument("--optimiser", "--ase_opt", dest="optimiser", default="BFGS", type=str.upper, choices=list(OPTIMISERS), help="ASE optimiser for the ASE-based engines. Def: BFGS")
-    parser.add_argument("--relax_cell_bulk", default=False, action="store_true", help="ASE-based engines: also relax the cell of the bulk structures (and decomposition products). Def: no (VASP/CASTEP always relax the bulk cell)")
+    parser.add_argument("--relax_cell_bulk", dest="relax_cell_bulk", default=None, action="store_true", help="ASE/MLIP engines: also relax the cell of the bulk structures (and decomposition products). Def: yes for -prog mlip, no for -prog ase (VASP/CASTEP always relax the bulk cell)")
+    parser.add_argument("--no_relax_cell_bulk", dest="relax_cell_bulk", action="store_false", help="ASE/MLIP engines: keep the cell of the bulk structures fixed.")
+
+    #Machine-learning potentials (-prog mlip)
+    parser.add_argument("--mlip", default="mace", type=str, help="Machine-learning potential for -prog mlip: %s, or custom:package.module:function (any function returning an ASE calculator). Def: mace"%", ".join(MLIP_BACKENDS))
+    parser.add_argument("--mlip_model", default=None, type=str, help="Model name or path for --mlip, e.g. 'medium-mpa-0' or 'my.model' (MACE), '7net-0' (SevenNet), 'uma-s-1' (fairchem). Def: the backend default")
+    parser.add_argument("--device", default="auto", type=str, help="Device for the machine-learning potential: cpu, cuda, mps or auto. Def: auto (GPU if available)")
+    parser.add_argument("--mlip_kwargs", default=None, type=str, help="Extra keyword arguments for the ML potential calculator as a Python dict, e.g. \"{'default_dtype': 'float32'}\" or \"{'task_name': 'omat'}\". Def: none")
     parser.add_argument("--fix_layers", default=0, type=int, help="Keep the lowest N atomic layers of the slabs fixed in the slab optimisations (bulk-like region). Def: 0")
     parser.add_argument("--outdir", default="OUTPUT", type=str, help="Directory for the output structures (the previous one is kept as <outdir>_prev). Def: OUTPUT")
     parser.add_argument("--version", action="version", version="INTERFACER %s"%__version__)
@@ -158,10 +166,17 @@ def make_settings(args):
                 if args.mpirun: exe="mpirun -n %d %s %s"%(args.nprocs,args.mpiargs,args.vexe)
                 else: exe="srun -n %d %s %s"%(args.nprocs,args.mpiargs,args.vexe)
                 exe=" ".join(exe.split())
+        relax_cell_bulk=args.relax_cell_bulk
+        if relax_cell_bulk is None: relax_cell_bulk=(args.prog=='mlip') #MLIPs: relax the bulk cells by default
+        mlip_kwargs={}
+        if args.mlip_kwargs:
+                try: mlip_kwargs=ast.literal_eval(args.mlip_kwargs)
+                except (ValueError,SyntaxError): raise ValueError("Cannot parse --mlip_kwargs '%s' (expected a Python dict)"%args.mlip_kwargs)
+                if not isinstance(mlip_kwargs,dict): raise ValueError("--mlip_kwargs must be a Python dict, got '%s'"%args.mlip_kwargs)
         settings=CalcSettings(encut=args.encut,kpspacing=args.kpspacing,xc=args.xc,sigma=args.sigma,hubU=parse_hubbard_u(args.hubU),
                               magmoms=args.magmoms,exe=exe,castep_pp=args.castep_PP,dry=args.dry,ase_pot=args.ase_pot,
-                              fmax=args.ase_fmax,steps=args.ase_gsteps,optimiser=args.optimiser,relax_cell_bulk=args.relax_cell_bulk,
-                              outdir=args.outdir)
+                              fmax=args.ase_fmax,steps=args.ase_gsteps,optimiser=args.optimiser,relax_cell_bulk=relax_cell_bulk,
+                              outdir=args.outdir,mlip=args.mlip,mlip_model=args.mlip_model,device=args.device,mlip_kwargs=mlip_kwargs)
         if args.prog == 'castep': #read the cutoff/k-point spacing from the CASTEP input files, if present
                 try:
                         import ase.calculators.castep
@@ -188,6 +203,9 @@ def main(argv=None):
         if settings.hubU: print ("Hubbard U values to be used: ",settings.hubU);stdout.flush()
         engine=get_engine(args.prog,settings)
         set_default_engine(engine)
+        if args.prog=='mlip': #load the model now, so that a missing package or model is reported before any work is done
+                try: engine.get_calculator()
+                except (ImportError,ValueError) as err: parser.error(str(err))
         outdir=args.outdir
 
         def write(atoms,base): return write_struct(atoms,base,engine,outdir)

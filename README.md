@@ -20,6 +20,8 @@ pip install -e ".[test]"      # installs the `interfacer` command and the Python
 python -m pytest              # optional: run the test suite (~10 s, no DFT code needed)
 ```
 
+Machine-learning potentials are optional extras. Install the ones you need, e.g. `pip install -e ".[mace]"`. The available extras are `mace`, `chgnet`, `matgl`, `sevennet`, `orb`, `fairchem`, `nequip` and `allegro`.
+
 To run DFT, set up the code through ASE:
 
 - **VASP:** set `VASP_PP_PATH` and either pass the MPI options (`-np`, `-mpi`, `-mpiargs`, `-vexe`) or set `VASP_COMMAND`.
@@ -30,6 +32,9 @@ To run DFT, set up the code through ASE:
 ```bash
 # a quick functionality test with a simple potential (seconds)
 interfacer -i1 Cu.cif -i2 Ni.cif -m1 1 1 1 -m2 1 1 1 -prog ase -ase_pot EMT
+
+# with a machine-learning potential (MACE-MP-0 foundation model; GPU used if available)
+interfacer -i1 Cu.cif -i2 Ni.cif -m1 1 1 1 -m2 1 1 1 -prog mlip --mlip mace --mlip_model medium-mpa-0 -tsep -thor
 
 # the same with VASP, including separation and lateral-shift scans
 interfacer -i1 Cu.cif -i2 Ni.cif -m1 1 1 1 -m2 1 1 1 -prog vasp -kp_gr "4 4 1" -tsep -thor -mpi -np 64
@@ -42,5 +47,7 @@ Results are written to `interfaces.out` and `OUTPUT/`. The previous `OUTPUT/` is
 ## Documentation
 
 - `docs/ROADMAP.md`: code overview and the refactoring roadmap.
+- `docs/mlip.md`: machine-learning potentials (MACE, CHGNet, MatGL, SevenNet, ORB, fairchem/UMA, NequIP/Allegro, custom).
+- `docs/package_layout.md`: package layout, Python API and migration from the old scripts.
 - `docs/known_issues.md`: fixed bugs and open issues.
 - `Tutorials/`: example inputs (β-Li3PS4|Li and Na3OCl|Na with VASP).

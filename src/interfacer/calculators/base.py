@@ -22,6 +22,11 @@ class CalcSettings:
     steps: int = 200                     # max optimisation steps
     optimiser: str = "BFGS"              # BFGS, FIRE or LBFGS
     relax_cell_bulk: bool = False        # relax the cell of bulk structures (ASE engines)
+    # machine-learning potentials (-prog mlip)
+    mlip: str = "mace"                   # backend, see interfacer.calculators.mlip
+    mlip_model: Optional[str] = None     # model name or path (backend default if None)
+    device: str = "auto"                 # cpu, cuda, mps or auto
+    mlip_kwargs: dict = field(default_factory=dict)  # extra keyword arguments for the calculator
     outdir: str = "OUTPUT"               # where trajectories are written
 
 
