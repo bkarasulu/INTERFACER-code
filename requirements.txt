@@ -1,0 +1,9 @@
+# Core dependencies of INTERFACER (same as pyproject.toml; prefer: pip install -e .[test])
+numpy>=1.24
+scipy
+matplotlib
+ase>=3.23
+spglib>=2.0
+pymatgen>=2023.1
+# testing
+pytest
