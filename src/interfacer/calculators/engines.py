@@ -80,10 +80,15 @@ class AseEngine(Engine):
             E = atoms.get_potential_energy()
         else:
             cell = bool(relax_cell and s.relax_cell_bulk)
-            print("Optimising the %s structure using ASE/%s%s" % (formula, self.label, " (with cell relaxation)" if cell else ""))
+            # Without FixCell (i.e. interfaces; slabs use FixCell=True and bulks relax_cell=True), the cell length along z
+            # is relaxed as well, keeping the matched in-plane cell: in a periodic interface cell this lets the second
+            # interface (across the periodic boundary) relax (VASP relaxes the whole cell, ISIF=3).
+            mask = [0, 0, 1, 0, 0, 0] if (not FixCell and not relax_cell) else None
+            note = " (with cell relaxation)" if cell else (" (with relaxation of the cell along z)" if mask else "")
+            print("Optimising the %s structure using ASE/%s%s" % (formula, self.label, note))
             traj = os.path.join(s.outdir, "%s_opt.traj" % os.path.basename(getattr(atoms, "name", name) or name)) if s.outdir else None
             E, atoms = relax(atoms, calc, fmax=s.fmax, steps=s.steps, optimiser=s.optimiser, relax_cell=cell,
-                             fix_bottom_layers=fix_bottom_layers, trajectory=traj)
+                             fix_bottom_layers=fix_bottom_layers, trajectory=traj, cell_mask=mask)
         _freeze_results(atoms, calc)
         return E, atoms
 

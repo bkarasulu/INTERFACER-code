@@ -1,0 +1,27 @@
+# Tutorial 4b: pre-screening of beta-Li3PS4 | Li with MACE-MP-0 before running VASP
+[structures]
+infile1 = "inputs/Li3PS4.vasp"
+infile2 = "inputs/Li.vasp"
+miller1 = [1, 0, 0]
+miller2 = [1, 0, 0]
+cr1 = 2
+cr2 = 6
+max_slab_dimension = 20
+
+[interface]
+vac_int = 1.0
+sep = 3.0
+
+[tests]
+tsur = true
+mlist = ["100", "010", "001"]
+tsep = true
+sep_init = 1.5
+sep_final = 3.5
+sep_step = 0.5
+
+[calculation]
+prog = "mlip"
+mlip = "mace"
+mlip_model = "small"
+ase_gsteps = 300

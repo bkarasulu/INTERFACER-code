@@ -57,20 +57,20 @@ def build_parser():
     parser = argparse.ArgumentParser(description="INTERFACER: build and analyse solid-solid interfaces from two bulk structures.")
 
     #Basic input/output related keywords
-    parser.add_argument("-i1", "--infile1", required=1)
-    parser.add_argument("-i2", "--infile2", required=1)
-    parser.add_argument("-o", "--outfile", default="interfaces.out")
-    parser.add_argument("-m1", "--miller1", default=(1,0,0), nargs="+", type=int)
-    parser.add_argument("-m2", "--miller2", default=(1,0,0), nargs="+", type=int)
+    parser.add_argument("-i1", "--infile1", required=1, help="Bulk structure of material 1 (bottom slab); any format ASE can read (cif, POSCAR, res, xyz, ...).")
+    parser.add_argument("-i2", "--infile2", required=1, help="Bulk structure of material 2 (top slab).")
+    parser.add_argument("-o", "--outfile", default="interfaces.out", help="Summary file with the surface energies and works of adhesion. Def: interfaces.out")
+    parser.add_argument("-m1", "--miller1", default=(1,0,0), nargs="+", type=int, help="Miller indices of the surface of material 1, e.g. -m1 1 1 0. Def: 1 0 0")
+    parser.add_argument("-m2", "--miller2", default=(1,0,0), nargs="+", type=int, help="Miller indices of the surface of material 2. Def: 1 0 0")
     parser.add_argument("-surf1", "--surface1", default=False, help="extra input file for a surface structure of i1")
     parser.add_argument("-surf2", "--surface2", default=False, help="extra input file for a surface structure of i2")
 
     #Keywords related to structure building
     parser.add_argument("-cr1", "--creps1", default=None, type=int, help='Repetitions in c direction (number of layers) for surface model 1')
     parser.add_argument("-cr2", "--creps2", default=None, type=int, help='Repetitions in c direction (number of layers) for surface model 2')
-    parser.add_argument("-msd", "--max_slab_dimension", default=50, type=float, help='max length of cell sides')
+    parser.add_argument("-msd", "--max_slab_dimension", default=50, type=float, help='Maximum length (A) of the in-plane cell vectors in the search for a commensurate supercell. Def: 50 A')
     parser.add_argument("-th", "--thickness", default=7, type=float, help='Minimum thickness of the symmetric slabs (-sym_slabs1/2), def: 7A. The thickness of the other slabs is set by -cr1/-cr2.')
-    parser.add_argument("-pt", "--percentage_tolerance", default=4, type=float, help='percentage tolerances for angle and length matching between two slabs')
+    parser.add_argument("-pt", "--percentage_tolerance", default=4, type=float, help='Tolerance (%%) for matching the in-plane angles and lengths of the two slabs (i.e. the maximum strain). Def: 4')
     parser.add_argument("-Linit", "--initLength", default=3, type=float, help='Initial (minimum) length of surface slabs in a/b direction, def: 3A') #orig def: 5A
     parser.add_argument("-Lstep", "--stepLength", default=2, type=float, help='step size for the increasing the length in a/b direction, def: 2A') #orig def: 5A
     parser.add_argument("-vac_slab", "--vac_slab", default=6., type=float, help='Size of vacuum padding in z direction (only for slabs), def: 6 A on both sites')

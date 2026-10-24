@@ -172,6 +172,14 @@ def find_prim(atoms,tol=1e-4):#using SPGlib find primitive cell of a given atoms
         return atoms2
 
 
+def is_stoichiometric(slab, bulk, tol=1e-6):
+        """True if the slab has the composition of the bulk (same elements in the same ratios)."""
+        els=sorted(set(bulk.get_chemical_symbols()))
+        if sorted(set(slab.get_chemical_symbols()))!=els: return False
+        nb=np.array([bulk.get_chemical_symbols().count(e) for e in els],float)
+        ns=np.array([slab.get_chemical_symbols().count(e) for e in els],float)
+        return bool(np.allclose(ns/ns.sum(), nb/nb.sum(), atol=tol))
+
 def get_interface_energy(slab1,slab2,Ebulk1,Ebulk2,dist=1.0,convLayers=False,vac_slab=6.0,vac_int=1.0,calc=None):
         """Single-point surface and adhesion energies for two (already aligned) slabs.
 
@@ -245,7 +253,13 @@ def calculate_chem_pots(bulk, decomps):
 
     if noa_matrix.shape[0] != noa_matrix.shape[1]:
         raise ValueError("calculate_chem_pots: need exactly (number of elements - 1) = %d decomposition products, got %d."%(len(toa_bulk)-1, len(decomps)))
-    cp = np.linalg.solve(noa_matrix, energies)
+    try:
+        cp = np.linalg.solve(noa_matrix, energies)
+    except np.linalg.LinAlgError:
+        raise ValueError("calculate_chem_pots: the compositions of the decomposition products (%s) and the bulk (%s) are linearly "
+                         "dependent (e.g. Na3OCl = Na2O + NaCl), so the chemical potentials are not determined. Use products that "
+                         "fix one limit, e.g. an elemental phase such as Na metal (Na-rich) together with NaCl."
+                         % (", ".join(d.get_chemical_formula() for d in decomps), bulk.get_chemical_formula()))
     assert (np.allclose(np.dot(noa_matrix, cp), energies)), "Chemical potentials calculation failed."
     chem_pots = {toa_bulk[i]: cp[i] for i in range(len(toa_bulk))}
 

@@ -29,7 +29,7 @@ import ase
 import ase.io
 from ase.build import niggli_reduce
 
-from .analysis import calculate_SFE, find_prim, get_fu, misfit, surf_area
+from .analysis import calculate_SFE, find_prim, get_fu, is_stoichiometric, misfit, surf_area
 from .builder import make_interface, make_slab, permute_surface, slab_aligner, standardise_slab
 from .convergence import cfactor, check_surfaces, checkHorizontal, conv_layers, convSep
 from .io import backup_output, write_struct
@@ -336,6 +336,10 @@ class InterfaceWorkflow:
         text += '%s: %.3f eV/atom\n' % ('Ebulk_2', self.Ebulk2)
         text += '%s (%s_%d%d%d): %.2f eV/nm^2 = %.2f J/m^2\n' % ('Wsurf_1', slab1.get_chemical_formula(empirical=1), m1[0], m1[1], m1[2], Ws1, Ws1 * cfactor)
         text += '%s (%s_%d%d%d): %.2f eV/nm^2 = %.2f J/m^2\n' % ('Wsurf_2', slab2.get_chemical_formula(empirical=1), m2[0], m2[1], m2[2], Ws2, Ws2 * cfactor)
+        for n, slab, bulk in ((1, slab1, self.bulk1), (2, slab2, self.bulk2)):
+            if not is_stoichiometric(slab, bulk):
+                text += 'NOTE: slab %d (%s) is not stoichiometric; W_surf_%d is not a surface energy (use its surface formation energy).\n' % (
+                    n, slab.get_chemical_formula(), n)
         self.report(text)
         self.write(slab1, "slab1_cut%s_aligned_opted" % ci); self.write(slab2, "slab2_cut%s_aligned_opted" % cj)
         return slab1, slab2, E1, E2, Ws1, Ws2

@@ -126,12 +126,13 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
               name='./VASP-tmp',resDir="",
               dipolCorr=False,dipolDir='z',KPgrid=None,KPspacing=None, 
               ifPrint=False,ENCUT=0,ifManualRun=True,FixCell=False,
-              FixVol=False,FixList=[],hubU={},ispin=0,restart=None,nelm=150,
+              FixVol=False,FixList=None,hubU=None,ispin=0,restart=None,nelm=150,
               nsw=800,etol=1E-8,ediffg=-0.01,slowConv=0,ismear=0,sigma=0.01,
               passivate=None,gamma=1,algo="Fast",nosymm=0,exe=None,
               mpiexe='mpirun',nproc=None,vac=0.0,magmom=None,view=False,
               dry=False, readINCAR=1,setups='recommended'):
 
+        FixList=FixList or []; hubU=hubU or {}
         #TODO: Read an external INCAR file for ENCUT, XC, KSPACING options
         if not exe: exe=getenv('VASP_COMMAND')
         if not exe:
@@ -329,8 +330,6 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
 
 
                 from ase.neighborlist import NeighborList, neighbor_list
-                from ase.utils import \
-                    natural_cutoffs  # distance cutoff based on covalent radii.
 
                 #ASEs neighborlist class has bugs, it counts number of coordination/neighbors for atoms located at the 0.0, 0.5 and 1.0 in fractional coordinates (a,b,c does not matter) !! Use rdf calculation instead. Actually this is a bug in natural_cutoff which cannot capture the different oxidation states of e.g. Fe. It's defined too short for capturing Fe6+.
                 #natural_cutoff of ASE does not work properly for finding the orrect no of neighbours.
@@ -581,8 +580,9 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
         chdir(cwd)
         return atoms.get_potential_energy(),atoms      
 
-def call_vasp_v2(fname='',exe=None,xc='pbe',mgms=None,hubU={},makepotcar=0,potcarxc='potpaw_PBE'): #atoms=None,
+def call_vasp_v2(fname='',exe=None,xc='pbe',mgms=None,hubU=None,makepotcar=0,potcarxc='potpaw_PBE'): #atoms=None,
 
+    hubU=hubU or {}
     if not exe: exe=getenv('VASP_COMMAND') ; 
     if not exe: exe='vasp_std'
     

@@ -98,3 +98,12 @@ def test_run_from_input_file(tmp_path, monkeypatch):
                                        'prog="ase"\nase_pot="EMT"\nmsd=20\nsurf_only=true\n')
     assert main(["--input", "run.toml", "--save_input", "used.toml"]) == 0
     assert (tmp_path / "used.toml").exists() and (tmp_path / "OUTPUT" / "results.json").exists()
+
+
+def test_cli_reference_is_up_to_date():
+    import os
+    import runpy
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    gen = runpy.run_path(os.path.join(root, "docs", "gen_cli.py"), run_name="not_main")
+    with open(os.path.join(root, "docs", "cli.md")) as f:
+        assert f.read() == gen["generate"](), "docs/cli.md is outdated: run python docs/gen_cli.py"

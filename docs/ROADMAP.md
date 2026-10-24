@@ -117,6 +117,12 @@ Pipeline restarts become uniform for every engine (skip a step when its output a
   - Results are returned as dataclasses and written to `OUTPUT/results.json`.
   - `cli.main` only parses options; the printed output and output files are unchanged.
   - 70 tests pass.
+- **Phase 7 done:** `--input` (TOML/YAML/JSON) and `--save_input`. See `input_files.md`.
+- **Phase 8 done:**
+  - MkDocs site (`mkdocs.yml`) covering installation, quick start, workflow and output files, theory, DFT codes, ML potentials, input files and the Python API reference (mkdocstrings).
+  - Command-line reference generated from the parser (`docs/gen_cli.py`, checked by a test).
+- **Phase 9 done:** Tutorials 01 (Cu|Ni EMT), 02 (Na3OCl|Na MACE), 03 (symmetric slabs/SFE), 04 (β-Li3PS4|Li VASP + MACE pre-screen) and 05 (Python API script and notebook), each with expected results; they are run by `tests/test_tutorials.py`.
+- **Phase 10 done:** `.github/workflows/ci.yml` (ruff, pytest on Python 3.10–3.13, tutorial 1, a MACE job, strict docs build) and the ruff configuration in `pyproject.toml`.
 
 ## Roadmap (phases, each one or more commits on `claude/exciting-hamilton-eunp54`)
 1. **Housekeeping.** Merge `symINTERFACER`. Remove `__pycache__` and the heavy VASP files (POTCAR, WAVECAR, CHG*, DOSCAR, EIGENVAL, vasprun.xml, PCDAT) from tracking, and add them to `.gitignore`. Finish the bug audit and record it in `docs/known_issues.md`.

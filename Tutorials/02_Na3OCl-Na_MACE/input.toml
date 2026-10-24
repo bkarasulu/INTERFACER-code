@@ -1,0 +1,28 @@
+# Tutorial 2: Na3OCl(100) | Na(100) with the MACE-MP-0 foundation model
+# (the system of the VASP tutorial in ../Antiperovskites; ~1 min on a CPU with the small model)
+[structures]
+infile1 = "na3ocl.cif"            # antiperovskite Na3OCl (Pm-3m)
+infile2 = "Na_Im-3m_mp-127.res"   # bcc Na
+miller1 = [1, 0, 0]
+miller2 = [1, 0, 0]
+cr1 = 4
+cr2 = 6
+initLength = 8
+
+[interface]
+vac_slab = 6.0
+vac_int = 2.0
+sep = 3.0
+
+[tests]
+tsep = true
+sep_init = 2.0
+sep_final = 3.5
+sep_step = 0.5
+
+[calculation]
+prog = "mlip"
+mlip = "mace"
+mlip_model = "small"     # try "medium-mpa-0" or "medium-omat-0" for better accuracy
+device = "auto"
+ase_gsteps = 300

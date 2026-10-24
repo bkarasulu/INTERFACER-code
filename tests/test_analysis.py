@@ -86,3 +86,23 @@ def test_get_interface_energy_runs(cu_bulk, ni_bulk):
                                                    dist=2.0, calc=EMT())
     assert Ws1 > 0 and Ws2 > 0
     assert np.isfinite(inter.info["W_ad"])
+
+
+def test_is_stoichiometric():
+    from interfacer.analysis import is_stoichiometric
+    nacl = bulk("NaCl", "rocksalt", a=5.64, cubic=True)
+    assert is_stoichiometric(nacl.repeat((1, 1, 2)), nacl)
+    s = nacl.repeat((1, 1, 2)); del s[0]
+    assert not is_stoichiometric(s, nacl)
+
+
+def test_chem_pots_linearly_dependent_products():
+    from ase.calculators.singlepoint import SinglePointCalculator
+    from ase.spacegroup import crystal
+    b = crystal(["Na", "O", "Cl"], basis=[(0.5, 0, 0), (0.5, 0.5, 0.5), (0, 0, 0)], spacegroup=221, cellpar=[4.5] * 3 + [90] * 3)
+    na2o = crystal(["Na", "O"], basis=[(0.25, 0.25, 0.25), (0, 0, 0)], spacegroup=225, cellpar=[5.55] * 3 + [90] * 3)
+    nacl = bulk("NaCl", "rocksalt", a=5.64, cubic=True)
+    for a, e in ((b, -10.0), (na2o, -20.0), (nacl, -12.0)):
+        a.calc = SinglePointCalculator(a, energy=e)
+    with pytest.raises(ValueError, match="linearly dependent"):
+        calculate_chem_pots(b, [na2o, nacl])   # Na3OCl = Na2O + NaCl

@@ -1,0 +1,32 @@
+# Tutorial 4: beta-Li3PS4 | Li with VASP (the settings of the original run_script)
+[structures]
+infile1 = "inputs/Li3PS4.vasp"    # beta-Li3PS4 (Pnma), from ICSD 180318
+infile2 = "inputs/Li.vasp"        # bcc Li (Im-3m), from ICSD 44367
+miller1 = [1, 0, 0]
+miller2 = [1, 0, 0]
+cr1 = 2
+cr2 = 6
+
+[interface]
+vac_int = 1.0
+vac_slab = 6.0
+sep = 3.0
+
+[tests]
+tsur = true
+tlay = true
+tsep = true
+sep_init = 1.0
+sep_final = 3.0
+sep_step = 0.25
+thor = true
+hor_steps = [0.25, 0.25]
+
+[calculation]
+prog = "vasp"
+encut = 400
+kpspacing = 0.32
+sigma = 0.05
+mpirun = true
+nprocs = 128
+# mpiargs = "--partition=<name>"

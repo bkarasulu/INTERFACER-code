@@ -1,0 +1,33 @@
+# Tutorial 1: Cu | Ni interface with the EMT potential (runs in a few seconds)
+[structures]
+infile1 = "Cu.cif"
+infile2 = "Ni.cif"
+miller1 = [1, 1, 1]      # replaced by the most stable surface found by tsur
+miller2 = [1, 1, 1]
+cr1 = 3                  # 3 cubic cells along c
+cr2 = 3
+
+[alignment]
+max_slab_dimension = 20  # max in-plane cell length (A)
+percentage_tolerance = 4
+
+[interface]
+sep = 2.0
+vac_int = 1.0
+
+[tests]
+tsur = true                       # surface stability: pick the lowest-energy surface
+mlist = ["100", "110", "111"]
+tsep = true                       # separation scan
+sep_init = 1.5
+sep_final = 3.0
+sep_step = 0.25
+thor = true                       # lateral registry scan
+hor_steps = [0.25, 0.25]
+
+[calculation]
+prog = "ase"
+ase_pot = "EMT"
+ase_gsteps = 200
+ase_fmax = 0.02
+relax_cell_bulk = true            # relax the lattice constants with EMT

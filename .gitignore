@@ -27,3 +27,12 @@ WAVEDER
 /ASE-tmp/
 /VASP-tmp/
 /CASTEP-tmp/
+
+# documentation build
+/site/
+
+# outputs of the new tutorials
+/Tutorials/0*/OUTPUT*/
+/Tutorials/0*/interfaces.out
+/Tutorials/0*/interfacer.log
+/Tutorials/*/interfacer.log
