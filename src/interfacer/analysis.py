@@ -170,6 +170,30 @@ def find_prim(atoms,tol=1e-4):#using SPGlib find primitive cell of a given atoms
         return atoms2
 
 
+def find_clashes(atoms, factor=0.6):
+        """Pairs of atoms closer than factor*(r_cov,i + r_cov,j) (periodic images included).
+        Returns a list of (i, j, distance, threshold) with i < j, sorted by distance."""
+        from ase.data import covalent_radii
+        from ase.neighborlist import neighbor_list
+        r=covalent_radii[atoms.numbers]
+        if len(atoms)==0: return []
+        cutoff=float(2*factor*r.max())
+        i,j,d=neighbor_list('ijd',atoms,cutoff)
+        out=[]
+        for a,b,dist in zip(i,j,d):
+                thr=factor*(r[a]+r[b])
+                if a<b and dist<thr: out.append((int(a),int(b),float(dist),float(thr)))
+        return sorted(out,key=lambda x:x[2])
+
+def warn_clashes(atoms, label="structure", factor=0.6):
+        """Print a warning if atoms clash (see find_clashes); returns the clashes."""
+        cl=find_clashes(atoms,factor)
+        if cl:
+                a,b,dist,thr=cl[0]
+                warn("WARNING: %d atom pair(s) too close in %s, e.g. %s%d-%s%d at %.2f A (< %.2f A = %.1f x sum of covalent radii). "
+                     "Check the separation (-sep) and the slab terminations."%(len(cl),label,atoms[a].symbol,a,atoms[b].symbol,b,dist,thr,factor))
+        return cl
+
 def is_stoichiometric(slab, bulk, tol=1e-6):
         """True if the slab has the composition of the bulk (same elements in the same ratios)."""
         els=sorted(set(bulk.get_chemical_symbols()))

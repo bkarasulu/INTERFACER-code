@@ -22,6 +22,8 @@ class VaspEngine(Engine):
     def run(self, atoms, typ, name, dipolCorr="None", FixCell=False, FixVol=0, passivate=None, nosymm=0, vac=0.0,
             KPgrid_=None, ase_opt=None, relax_cell=False, fix_bottom_layers=0):
         s = self.settings
+        from ..builder import prepare_cell_for_vasp
+        atoms = prepare_cell_for_vasp(atoms)  # right-handed cell, no negative z coordinates
         if fix_bottom_layers:  # written as selective dynamics in the POSCAR
             atoms.set_constraint(FixAtoms(indices=bottom_layer_indices(atoms, fix_bottom_layers)))
         return call_vasp(atoms, typ=typ, dipolCorr=dipolCorr, name=name, ENCUT=s.encut, KPgrid=KPgrid_, KPspacing=s.kpspacing,

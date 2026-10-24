@@ -757,6 +757,23 @@ def slab_aligner(slab1,slab2,L,Lmax,Lstep,ptol,thickness,atoms1,atoms2):
         """
 
 
+def prepare_cell_for_vasp(atoms):
+        """Make a cell safe for VASP: right-handed (positive triple product a.(b x c); otherwise a and b are swapped) and
+        no negative fractional coordinates along c (atoms are shifted into the cell). Returns the (possibly modified) atoms."""
+        changed=[]
+        if np.linalg.det(atoms.cell[:])<0:
+                atoms=flip_handedness(atoms); changed.append("made right-handed (a and b swapped)")
+        sp=atoms.get_scaled_positions(wrap=False)
+        if sp[:,2].min()<-1e-8 or sp[:,2].max()>=1.0:
+                pbc_c=bool(atoms.pbc[2])
+                if sp[:,2].max()-sp[:,2].min()<1.0:
+                        atoms.translate(-atoms.cell[2]*np.floor(sp[:,2].min()))
+                        changed.append("shifted along c (no negative z coordinates)")
+                elif pbc_c:
+                        atoms.wrap(); changed.append("wrapped into the cell")
+        if changed: debug("prepare_cell_for_vasp: cell "+", ".join(changed))
+        return atoms
+
 def flip_cell(interface): #TODO: check if the resulting cross (triple) product of the resulting cell vectors is positive (whhich a an issue for VASP). THen it should not flip the cell
         #Flip a cell that extends towards -z (VASP cannot work with negative z coordinates).
         cell=interface.get_cell()
@@ -765,7 +782,7 @@ def flip_cell(interface): #TODO: check if the resulting cross (triple) product o
         interface.translate([0.,0.,cell[2][2]])
         return interface
 
-def make_interface(slab1,slab2,sep,vac,reorder=True):
+def make_interface(slab1,slab2,sep,vac,reorder=True,check_clashes=True):
         """Stack two aligned slabs (slab1 at the bottom) into an interface.
 
         Args:
@@ -774,6 +791,7 @@ def make_interface(slab1,slab2,sep,vac,reorder=True):
             vac (float): vacuum padding (A) on both sides along c. With vac=sep/2 the periodic images form a second,
                 equivalent interface.
             reorder (bool): sort the atoms by element (otherwise the atoms of slab1 come first).
+            check_clashes (bool): warn if atoms are too close (see analysis.find_clashes).
         Returns:
             ase.Atoms: the interface (the input slabs are not modified). The in-plane cell is the average of both cells.
 
@@ -795,4 +813,7 @@ def make_interface(slab1,slab2,sep,vac,reorder=True):
         if (interface.get_cell()[2][2]<0): #VASP can't work with upside-down cells (with negative z-coordiantes)
                 debug("Cell extends towards -z direction, VASP cannot work with -ve z coords, fixing it...");stdout.flush()
                 interface=flip_cell(interface)
+        if check_clashes:
+                from .analysis import warn_clashes
+                warn_clashes(interface,"the interface (sep=%.2f A)"%sep)
         return interface

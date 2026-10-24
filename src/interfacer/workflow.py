@@ -28,7 +28,7 @@ import ase
 import ase.io
 from ase.build import niggli_reduce
 
-from .analysis import calculate_SFE, find_prim, get_fu, is_stoichiometric, misfit, surf_area
+from .analysis import calculate_SFE, find_prim, get_fu, is_stoichiometric, misfit, surf_area, warn_clashes
 from .builder import make_interface, make_slab, permute_surface, slab_aligner, standardise_slab
 from .convergence import cfactor, check_surfaces, checkHorizontal, conv_layers, convSep
 from .io import backup_output, write_struct
@@ -377,6 +377,7 @@ class InterfaceWorkflow:
         slab1_a.name = 'slab1_cut%s_aligned' % ci
         slab2_a.name = 'slab2_cut%s_aligned' % cj
         _log("\nMisfit (mu) of %s and %s (after alignment): %.2f%%" % (slab1_a.name, slab2_a.name, m1 * 100))
+        warn_clashes(slab1_a, slab1_a.name); warn_clashes(slab2_a, slab2_a.name)
         self._view(slab1_a, slab2_a)
         if cfg.flip2:  #Flip the slab2 (top slab) upside-down. The cell angles cannot be preserved (does not work reliably).
             slab2_a.rotate(a=180, v='x', rotate_cell=0, center=(0, 0, 0))
