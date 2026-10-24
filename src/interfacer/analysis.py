@@ -9,6 +9,7 @@ import numpy as np
 from ase import Atoms
 from ase.geometry import find_mic
 from spglib import find_primitive, get_spacegroup
+from .log import debug, say, warn
 
 
 def get_thickness(atoms): #replace cell[2][2] or vol/surf_area (better)
@@ -153,7 +154,7 @@ def get_fu(atoms):
                                 if j%i!=0:fl=0
                         if fl:fu=i
         #print fu
-        except: print("Error in fu determination, fu set to 1");   fu=1
+        except: warn("Error in fu determination, fu set to 1");   fu=1
     
         return fu        
 
@@ -161,10 +162,10 @@ def find_prim(atoms,tol=1e-4):#using SPGlib find primitive cell of a given atoms
         scaled_positions= atoms.get_scaled_positions()#(wrap=True) 
         cell=(atoms.cell, scaled_positions, atoms.numbers)
         #print cell
-        print("Space group of the given cell using tolerance=%f: %s"%(tol,get_spacegroup(cell,symprec=tol)))
+        debug("Space group of the given cell using tolerance=%f: %s"%(tol,get_spacegroup(cell,symprec=tol)))
         prim = find_primitive(cell, symprec=tol)
         if prim is None:
-                print("find_prim: spglib could not find a primitive cell (tol=%g), using the input cell."%tol)
+                warn("find_prim: spglib could not find a primitive cell (tol=%g), using the input cell."%tol)
                 return atoms.copy()
         lattice, scaled_positions, numbers = prim
         #lattice, scaled_positions, numbers = standardize_cell(cell, to_primitive=True, no_idealize=False, symprec=tol)
@@ -217,7 +218,7 @@ def get_interface_energy(slab1,slab2,Ebulk1,Ebulk2,dist=1.0,convLayers=False,vac
         #Work of adhesion (positive for a bound interface).
         Wad=(Eslab1+Eslab2-Eint)/surf_area(int1)/0.01 #A2 to nm2
         int1.info['W_ad']=Wad
-        print('Wsurf 1: %.2f eV/nm^2, Wsurf 2: %.2f eV/nm^2, W_ad: %.2f eV/nm^2'%(Ws1,Ws2,Wad))
+        say('Wsurf 1: %.2f eV/nm^2, Wsurf 2: %.2f eV/nm^2, W_ad: %.2f eV/nm^2'%(Ws1,Ws2,Wad))
         return Eslab1,Eslab2,Ws1,Ws2,int1
 
 ################# functions to determine surface formation energies of symmetric surfaces ###################################

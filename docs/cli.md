@@ -100,7 +100,8 @@ Every option except `--input`, `--save_input`, `--help` and `--version` can also
 |---|---|---|
 | `-dry`, `--dry` |  | Make a dry run, do not run CASTEP/VASP calculation. Good for checking the slabs and the interfacing algorithm. |
 | `-view`, `--view` |  | To view the generated structures. |
-| `-v`, `--verb` |  | Verbose output. Default: False. |
+| `-v`, `--verb` |  | Verbose output: also show details (supercell search, optimiser steps, passivation, ...). Default: False. |
+| `-q`, `--quiet` |  | Only show warnings and errors. Default: False. |
 | `-quick`, `--quick` |  | Setup a quick test run using ASE/LJ potentials to check functionality. Default: False. |
 
 ## ASE optimiser (-prog ase / mlip)

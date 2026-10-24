@@ -8,6 +8,7 @@ import ase
 import ase.io
 import ase.calculators.castep
 from ase import Atoms
+from ..log import debug, say, warn
 
 def call_castep(atoms,calc=None, typ="sp",PP='',wDir='./CASTEP-tmp',name='try',param='opt.param',resDir="",dipolCorr=False,dipolDir='z',KPgrid="1 1 1",KPspacing="", ifPrint=False,ifDryRun=False,ENCUT=0,ifManualRun=True,FixCell=False,FixList=None,hubU=None,slowConv=0):
     #For applying constraints (FixList) atom numbering starts from 1.
@@ -158,7 +159,7 @@ def call_castep(atoms,calc=None, typ="sp",PP='',wDir='./CASTEP-tmp',name='try',p
         calc._export_settings = True
         #print atoms.calc,"bora\n\n",calc
         
-    if ifPrint:print (calc) #prints calculation summary.
+    if ifPrint:say(calc) #prints calculation summary.
 
     # necessary for tasks with changing positions
     # such as GeometryOptimization or MolecularDynamics (This option does not work as deisgnated !!! The atomic coords are not updated at the end of the geom. opt. unlike the energy.
@@ -172,7 +173,7 @@ def call_castep(atoms,calc=None, typ="sp",PP='',wDir='./CASTEP-tmp',name='try',p
                     #str1="%s %s/%s"%(exe,wDir,name)
                     str1="%s %s"%(exe,name)  
                     #TODO: Add here the run3 option !
-                    print("Running ",str1)
+                    say("Running ",str1)
 
                     calc._copy_pspots=True
                     calc.initialize()
@@ -183,7 +184,7 @@ def call_castep(atoms,calc=None, typ="sp",PP='',wDir='./CASTEP-tmp',name='try',p
                     system(str1) #PSPOT missing in the folder
                     #x=parseCASTEP("%s/%s.geom"%(wDir,name),atoms=atoms)
                     task=str(atoms.calc.param.task).split()[-1]
-                    print(task)
+                    debug(task)
                     if task=='SinglePoint' : #use <seed>.castep file
                             x=parseCASTEP("%s.castep"%(name),atoms=atoms)
                     elif task=='GeometryOptimization': #use <seed>.geom file.
@@ -195,7 +196,7 @@ def call_castep(atoms,calc=None, typ="sp",PP='',wDir='./CASTEP-tmp',name='try',p
                                     chdir(cwd)
                                     raise RuntimeError("call_castep: could not parse the results of %s (see %s/%s.castep)"%(name,wDir,name))
 
-                            if x[-2]==False: print("parseCASTEP: WARNING: Geometry optimization in %s.geom is not converged!"%name)
+                            if x[-2]==False: warn("parseCASTEP: WARNING: Geometry optimization in %s.geom is not converged!"%name)
                     else:
                             chdir(cwd)
                             raise ValueError("call_castep: calculation type %s is not supported."%task)
@@ -225,7 +226,7 @@ def parseCASTEP(fname,atoms=None):      #This function has become obselete
         fract=[]
         ids=[] #atomic id's
 
-        print("Parsing ",fname)
+        debug("Parsing ",fname)
         if fname.split(".")[-1]=="geom":
                 with open(fname) as f: tSteps=sum(1 for ln in f if "<-- c" in ln)-1
 
@@ -283,11 +284,11 @@ def parseCASTEP(fname,atoms=None):      #This function has become obselete
                 #xyz=atoms.get_positions()#.tolist()
                 
         if len(ids)==0: 
-                print(ids);print ("parseCASTEP: WARNING: No chemical symbol info in %s."%fname); return None
+                warn(ids);warn("parseCASTEP: WARNING: No chemical symbol info in %s."%fname); return None
         elif len(h)==0: 
-                print ("parseCASTEP: WARNING: No cell info in %s."%fname); return None
+                warn("parseCASTEP: WARNING: No cell info in %s."%fname); return None
         elif len(xyz)==0 and len(fract)==0: 
-                print ("parseCASTEP: WARNING: No Cartesian or fractional coordinate info in %s."%fname); return None
+                warn("parseCASTEP: WARNING: No Cartesian or fractional coordinate info in %s."%fname); return None
         
                                                 
         if atoms != None:

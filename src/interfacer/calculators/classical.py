@@ -6,6 +6,8 @@ from ase.calculators.lj import LennardJones as LJ
 from ase.calculators.morse import MorsePotential as MP
 from ase.optimize import BFGS
 
+from ..log import say
+
 POTENTIALS=('LJ','Morse','EMT')
 
 def classical_calculator(ctype='LJ'):
@@ -28,7 +30,7 @@ def call_ase(atoms,opt=False,ctype='LJ',fmax=0.05,steps=200,outdir='OUTPUT'):
         atoms.calc = calc
         
         if opt:
-                print('Optimising the %s structure using ASE/%s'%(atoms.get_chemical_formula(empirical=1),cname))
+                say('Optimising the %s structure using ASE/%s'%(atoms.get_chemical_formula(empirical=1),cname))
                 traj=None
                 if outdir:
                         os.makedirs(outdir,exist_ok=True)
@@ -38,10 +40,10 @@ def call_ase(atoms,opt=False,ctype='LJ',fmax=0.05,steps=200,outdir='OUTPUT'):
                         dyn.run(fmax=fmax,steps=steps)
                 except Exception as err: 
                         #Previously an energy of 0.0 was returned silently here. Now the energy of the last geometry is returned (with a warning).
-                        print("call_ase: WARNING: Error in geometry opt using ASE (returning the energy of the last geometry):  ", err)
+                        say("call_ase: WARNING: Error in geometry opt using ASE (returning the energy of the last geometry):  ", err)
                 return atoms.get_potential_energy(),atoms 
         else:
-               print('Getting SP energy using ASE/%s'%cname)
+               say('Getting SP energy using ASE/%s'%cname)
                return atoms.get_potential_energy(),atoms 
         
 #TODO: Add DFTB and GPAW!

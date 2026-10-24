@@ -22,7 +22,6 @@ import json
 import os
 import time
 from dataclasses import asdict, dataclass, field
-from sys import stdout
 from typing import List, Optional
 
 import ase
@@ -33,11 +32,11 @@ from .analysis import calculate_SFE, find_prim, get_fu, is_stoichiometric, misfi
 from .builder import make_interface, make_slab, permute_surface, slab_aligner, standardise_slab
 from .convergence import cfactor, check_surfaces, checkHorizontal, conv_layers, convSep
 from .io import backup_output, write_struct
+from .log import ensure_logging, say
 
 
 def _log(msg=""):
-    print(msg)
-    stdout.flush()
+    say(msg)
 
 
 @dataclass
@@ -150,6 +149,7 @@ class InterfaceWorkflow:
     """Runs the INTERFACER workflow with an engine (see interfacer.calculators) and a WorkflowConfig."""
 
     def __init__(self, engine, config=None):
+        ensure_logging()
         self.engine = engine
         self.cfg = config if config is not None else WorkflowConfig()
         self.results = WorkflowResults()

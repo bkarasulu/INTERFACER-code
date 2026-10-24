@@ -9,6 +9,7 @@ from .classical import classical_calculator
 from .mlip import lazy_calculator_factory
 from .optimise import bottom_layer_indices, relax
 from .vasp import call_vasp
+from ..log import say
 
 
 class VaspEngine(Engine):
@@ -75,7 +76,7 @@ class AseEngine(Engine):
         calc = self.get_calculator()
         formula = atoms.get_chemical_formula(empirical=1)
         if not opt:
-            print("Getting SP energy using ASE/%s" % self.label)
+            say("Getting SP energy using ASE/%s" % self.label)
             atoms.calc = calc
             E = atoms.get_potential_energy()
         else:
@@ -85,7 +86,7 @@ class AseEngine(Engine):
             # interface (across the periodic boundary) relax (VASP relaxes the whole cell, ISIF=3).
             mask = [0, 0, 1, 0, 0, 0] if (not FixCell and not relax_cell) else None
             note = " (with cell relaxation)" if cell else (" (with relaxation of the cell along z)" if mask else "")
-            print("Optimising the %s structure using ASE/%s%s" % (formula, self.label, note))
+            say("Optimising the %s structure using ASE/%s%s" % (formula, self.label, note))
             traj = os.path.join(s.outdir, "%s_opt.traj" % os.path.basename(getattr(atoms, "name", name) or name)) if s.outdir else None
             E, atoms = relax(atoms, calc, fmax=s.fmax, steps=s.steps, optimiser=s.optimiser, relax_cell=cell,
                              fix_bottom_layers=fix_bottom_layers, trajectory=traj, cell_mask=mask)

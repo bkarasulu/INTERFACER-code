@@ -26,6 +26,8 @@ Example::
 """
 import importlib
 
+from ..log import say
+
 #: name -> pip package(s) to install
 INSTALL_HINTS = {
     "mace": "pip install mace-torch",
@@ -202,7 +204,7 @@ def lazy_calculator_factory(name, model=None, device="auto", **kwargs):
 
     def factory():
         if "calc" not in cache:
-            print("Loading the %s potential%s..." % (name, " (model: %s)" % model if model else ""))
+            say("Loading the %s potential%s..." % (name, " (model: %s)" % model if model else ""))
             cache["calc"] = mlip_calculator(name, model=model, device=device, **kwargs)
         return cache["calc"]
     return factory

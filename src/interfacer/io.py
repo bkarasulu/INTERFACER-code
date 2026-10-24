@@ -4,6 +4,8 @@ import shutil
 
 import ase.io
 
+from .log import say
+
 #: file extension and ase.io.write keywords per code
 FORMATS = {
     "castep": ("cell", {"format": "castep-cell"}),
@@ -38,7 +40,7 @@ def write_struct(atoms, base, engine="ase", outdir="OUTPUT", trajectory=False, a
 def backup_output(outdir="OUTPUT"):
     """Move an existing output directory to <outdir>_prev (replacing an older backup) and create an empty one."""
     if os.path.exists(outdir):
-        print("Moving previous output structures from %s to %s_prev..." % (outdir, outdir))
+        say("Moving previous output structures from %s to %s_prev..." % (outdir, outdir))
         shutil.rmtree(outdir + "_prev", ignore_errors=True)
         shutil.move(outdir, outdir + "_prev")
     os.makedirs(outdir, exist_ok=True)

@@ -11,6 +11,7 @@ from ase import Atoms
 from pymatgen.core.surface import SlabGenerator
 from pymatgen.io.ase import AseAtomsAdaptor
 from spglib import get_symmetry
+from .log import debug, say, warn
 
 #Surface creation and alignment tool by James P. Darby.
 #This is the former join8.py
@@ -292,9 +293,9 @@ def permute_surface(bulk_ase, miller_plane, minimum_thickness, vacuum):
                     continue
                 surf_list.append(sym_slab_ase)
     if len(surf_list) == 0:
-        print("Found no symmetric structures for this Miller plane.\n");stdout.flush()
+        say("Found no symmetric structures for this Miller plane.\n");stdout.flush()
     else:
-        print(f"Found {str(len(surf_list))} unique, symmetric surfaces for {str(miller_plane)} \n");stdout.flush()
+        say(f"Found {str(len(surf_list))} unique, symmetric surfaces for {str(miller_plane)} \n");stdout.flush()
         
     return surf_list
 
@@ -588,7 +589,7 @@ def match_angles2(slab1_cell, angles1, slab2_cell, angles2, ptol, Lmax):
     matches = sorted(matches,key=lambda a_entry: a_entry[0])
             
     def filter_matches(matches):
-        print ("selecting best match based on Area and sin(theta) from {} choices".format(len(matches)))
+        debug("selecting best match based on Area and sin(theta) from {} choices".format(len(matches)))
         A = matches[0][0]
         stheta = np.sin(matches[0][1])
         best  = matches.pop(0)
@@ -688,7 +689,7 @@ def atom_density_check(atoms,slab):
     pd = abs((ri-rf)/ri*100)
     if pd > 10.0: #10**-4:
         #print ("number density of slab has changed by {:.2} percent".format(pd))
-        print ("number density of slab has changed by %%%.2f"%(pd))
+        warn("number density of slab has changed by %%%.2f"%(pd))
         #print ("exiting due to change in atom density...")
 
 def find_commensurate_supercell(slab1,slab2,L,Lmax,Lstep,ptol):
@@ -698,10 +699,10 @@ def find_commensurate_supercell(slab1,slab2,L,Lmax,Lstep,ptol):
     choice = None
 
     while L <= Lmax and success == False:
-        print ("trying with L = %.2f A"%L)
+        debug("trying with L = %.2f A"%L)
         angles2 = reasnoble_slab_angles(Lmax=L,slab=slab2)
         angles1 = reasnoble_slab_angles(Lmax=L,slab=slab1)    
-        print ("comparing {} possible pairs".format(len(angles1)*len(angles2))    )
+        debug("comparing {} possible pairs".format(len(angles1)*len(angles2))    )
         #angles contains all pairs of cell vectors where both are shorter than Lma
         if len(angles1) > 0 and len(angles2) > 0:
             try:
@@ -793,6 +794,6 @@ def make_interface(slab1,slab2,sep,vac,reorder=True):
         if reorder: interface=ase.build.sort(interface)
         interface.center(vacuum=vac, axis=2) #Vacuum on both sides. For dipole corrections at least 8A vacuum is needed.
         if (interface.get_cell()[2][2]<0): #VASP can't work with upside-down cells (with negative z-coordiantes)
-                print ("Cell extends towards -z direction, VASP cannot work with -ve z coords, fixing it...");stdout.flush()
+                debug("Cell extends towards -z direction, VASP cannot work with -ve z coords, fixing it...");stdout.flush()
                 interface=flip_cell(interface)
         return interface

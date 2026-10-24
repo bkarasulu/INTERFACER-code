@@ -5,6 +5,8 @@ import numpy as np
 from ase.constraints import FixAtoms
 from ase.optimize import BFGS, FIRE, LBFGS
 
+from ..log import say, verbose, warn
+
 OPTIMISERS = {"BFGS": BFGS, "FIRE": FIRE, "LBFGS": LBFGS}
 
 
@@ -37,7 +39,7 @@ def bottom_layer_indices(atoms, n_layers, tol=0.3):
 
 
 def relax(atoms, calc, fmax=0.05, steps=200, optimiser="BFGS", relax_cell=False, fix_bottom_layers=0,
-          trajectory=None, logfile="-", cell_mask=None):
+          trajectory=None, logfile=None, cell_mask=None):
     """Relax `atoms` in place with an ASE optimiser and return (energy, atoms).
 
     Args:
@@ -51,6 +53,7 @@ def relax(atoms, calc, fmax=0.05, steps=200, optimiser="BFGS", relax_cell=False,
             [0, 0, 1, 0, 0, 0] to relax only the length along z; implies relax_cell. Default: all.
         fix_bottom_layers (int): number of bottom atomic layers to keep fixed (for slabs).
         trajectory (str): optional trajectory file name.
+        logfile: optimiser log ('-' = stdout); default: stdout with -v, otherwise only a one-line summary.
     """
     atoms.calc = calc
     constraints_before = atoms.constraints
@@ -66,14 +69,18 @@ def relax(atoms, calc, fmax=0.05, steps=200, optimiser="BFGS", relax_cell=False,
         d = os.path.dirname(trajectory)
         if d:
             os.makedirs(d, exist_ok=True)
+    if logfile is None and verbose():
+        logfile = "-"
     opt = get_optimiser(optimiser)(target, trajectory=trajectory, logfile=logfile)
     try:
         converged = opt.run(fmax=fmax, steps=steps)
     except Exception as err:
-        print("relax: WARNING: optimisation failed (returning the energy of the last geometry): %s" % err)
+        warn("relax: WARNING: optimisation failed (returning the energy of the last geometry): %s" % err)
         converged = False
     if not converged:
-        print("relax: WARNING: not converged to fmax=%.3f eV/A within %d steps" % (fmax, steps))
+        warn("relax: WARNING: not converged to fmax=%.3f eV/A within %d steps" % (fmax, steps))
     if fix_bottom_layers:
         atoms.set_constraint(constraints_before)
-    return atoms.get_potential_energy(), atoms
+    E = atoms.get_potential_energy()
+    say("  %s after %d steps: E = %.5f eV" % ("converged" if converged else "stopped", opt.nsteps, E))
+    return E, atoms

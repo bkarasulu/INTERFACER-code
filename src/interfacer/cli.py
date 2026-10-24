@@ -9,7 +9,6 @@ import argparse
 import ast
 import os
 import re
-from sys import stdout
 
 import ase.io
 
@@ -19,6 +18,7 @@ from .calculators.classical import POTENTIALS
 from .calculators.mlip import BACKENDS as MLIP_BACKENDS
 from .calculators.optimise import OPTIMISERS
 from .convergence import set_default_engine
+from .log import say, setup_logging, warn
 from .workflow import InterfaceWorkflow, config_from_args
 
 
@@ -134,7 +134,8 @@ def build_parser():
     #Other general keywords
     parser.add_argument("-dry", "--dry", default=False, action="store_true", help="Make a dry run, do not run CASTEP/VASP calculation. Good for checking the slabs and the interfacing algorithm.")
     parser.add_argument("-view", "--view", default=False, action="store_true", help="To view the generated structures.")
-    parser.add_argument("-v", "--verb", default=False, action='store_true', help='Verbose output. Default: False.')
+    parser.add_argument("-v", "--verb", default=False, action='store_true', help='Verbose output: also show details (supercell search, optimiser steps, passivation, ...). Default: False.')
+    parser.add_argument("-q", "--quiet", default=False, action='store_true', help='Only show warnings and errors. Default: False.')
     parser.add_argument("-quick", "--quick", default=False, action='store_true', help='Setup a quick test run using ASE/LJ potentials to check functionality. Default: False.')
 
     #Options added in the refactored version (ASE-based engines)
@@ -276,7 +277,7 @@ def make_settings(args):
                         calc.merge_param(args.castep_param)
                         if calc.param.cut_off_energy.value is not None: settings.encut=calc.param.cut_off_energy.value
                         settings.kpspacing=float(grep('kpoints_mp_spacing',args.castep_cell).split()[-1])
-                except Exception as err: print("Can't read the param file:", err);stdout.flush()
+                except Exception as err: warn("Can't read the param file:", err)
         return settings
 
 
@@ -290,9 +291,10 @@ def main(argv=None):
                 try: apply_input_file(parser,known.input)
                 except (OSError,ValueError,TypeError,argparse.ArgumentTypeError) as err: parser.error("Cannot use input file %s: %s"%(known.input,err))
         args = parser.parse_args(argv)
+        setup_logging(1 if args.verb else (-1 if args.quiet else 0))
         if args.save_input:
                 save_input_file(args,args.save_input,build_parser())
-                print("Options written to %s"%args.save_input);stdout.flush()
+                say("Options written to %s"%args.save_input)
 
         if args.quick: #Set the parameters for quick testing 
                args.prog='ase'; 
@@ -305,7 +307,7 @@ def main(argv=None):
                 settings=make_settings(args)
                 config=config_from_args(args)
         except (ValueError,SyntaxError) as err: parser.error(str(err))
-        if settings.hubU: print ("Hubbard U values to be used: ",settings.hubU);stdout.flush()
+        if settings.hubU: say("Hubbard U values to be used: ",settings.hubU)
 
         engine=get_engine(args.prog,settings)
         set_default_engine(engine)
@@ -313,7 +315,7 @@ def main(argv=None):
                 try: engine.get_calculator()
                 except (ImportError,ValueError) as err: parser.error(str(err))
 
-        print("Reading data from %s and %s."%(args.infile1,args.infile2));stdout.flush()
+        say("Reading data from %s and %s."%(args.infile1,args.infile2))
         atoms1 = ase.io.read(args.infile1)
         atoms2 = ase.io.read(args.infile2)
 
