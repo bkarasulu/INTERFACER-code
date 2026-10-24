@@ -1,1 +1,29 @@
 INTERFACER-code.code-workspace
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# Large / licensed VASP outputs (POTCARs must not be redistributed)
+POTCAR
+WAVECAR
+CHGCAR
+CHG
+DOSCAR
+EIGENVAL
+vasprun.xml
+PCDAT
+PROCAR
+LOCPOT
+ELFCAR
+WAVEDER
+
+# Run directories created by INTERFACER
+/OUTPUT/
+/ASE-tmp/
+/VASP-tmp/
+/CASTEP-tmp/
