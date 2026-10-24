@@ -140,7 +140,7 @@ def build_parser():
     #Options added in the refactored version (ASE-based engines)
     parser.add_argument("--optimiser", "--ase_opt", dest="optimiser", default="BFGS", type=str.upper, choices=list(OPTIMISERS), help="ASE optimiser for the ASE-based engines. Def: BFGS")
     parser.add_argument("--relax_cell_bulk", dest="relax_cell_bulk", default=None, action="store_true", help="ASE/MLIP engines: also relax the cell of the bulk structures (and decomposition products). Def: yes for -prog mlip, no for -prog ase (VASP/CASTEP always relax the bulk cell)")
-    parser.add_argument("--no_relax_cell_bulk", dest="relax_cell_bulk", action="store_false", help="ASE/MLIP engines: keep the cell of the bulk structures fixed.")
+    parser.add_argument("--no_relax_cell_bulk", dest="relax_cell_bulk", default=None, action="store_false", help="ASE/MLIP engines: keep the cell of the bulk structures fixed.")
 
     #Machine-learning potentials (-prog mlip)
     parser.add_argument("--mlip", default="mace", type=str, help="Machine-learning potential for -prog mlip: %s, or custom:package.module:function (any function returning an ASE calculator). Def: mace"%", ".join(MLIP_BACKENDS))
@@ -150,7 +150,105 @@ def build_parser():
     parser.add_argument("--fix_layers", default=0, type=int, help="Keep the lowest N atomic layers of the slabs fixed in the slab optimisations (bulk-like region). Def: 0")
     parser.add_argument("--outdir", default="OUTPUT", type=str, help="Directory for the output structures (the previous one is kept as <outdir>_prev). Def: OUTPUT")
     parser.add_argument("--version", action="version", version="INTERFACER %s"%__version__)
+
+    #Input files
+    parser.add_argument("--input", "-inp", default=None, type=str, help="Input file (TOML, YAML or JSON) with options; keys are the long option names (e.g. infile1, miller1, prog, convSep). Options given on the command line override the file.")
+    parser.add_argument("--save_input", default=None, type=str, help="Write the effective options of this run to a TOML/YAML/JSON file (by extension) that can be used with --input.")
     return parser
+
+
+INPUT_EXCLUDE = {"help", "version", "input", "save_input"}
+
+def load_input_file(path):
+        """Read an input file (TOML, YAML or JSON, by extension) into a dict."""
+        ext=os.path.splitext(path)[1].lower()
+        if ext in (".yaml",".yml"):
+                try: import yaml
+                except ImportError: raise ValueError("YAML input files need PyYAML (pip install pyyaml); TOML and JSON work without it.")
+                with open(path) as f: data=yaml.safe_load(f) or {}
+        elif ext==".json":
+                import json
+                with open(path) as f: data=json.load(f)
+        else:
+                try: import tomllib
+                except ImportError: import tomli as tomllib  # Python < 3.11
+                with open(path,"rb") as f: data=tomllib.load(f)
+        if not isinstance(data,dict): raise ValueError("Input file %s must contain a table/mapping of options."%path)
+        #allow optional sections, e.g. [structures], [calculation] -> flatten
+        flat={}
+        for k,v in data.items():
+                if isinstance(v,dict) and k not in ("chem_pots1","chem_pots2","mlip_kwargs","cp1","cp2"): flat.update(v)
+                else: flat[k]=v
+        return flat
+
+def _option_index(parser):
+        #name (dest, long or short option without dashes) -> argparse action
+        idx={}
+        for a in parser._actions:
+                if a.dest in INPUT_EXCLUDE or a.dest==argparse.SUPPRESS: continue
+                idx.setdefault(a.dest,a) #first action wins (e.g. relax_cell_bulk vs. no_relax_cell_bulk)
+                for opt in a.option_strings: idx.setdefault(opt.lstrip("-"),a)
+        return idx
+
+def _convert(action,value):
+        """Convert a value from an input file to what argparse would produce for this option."""
+        if isinstance(action,(argparse._StoreTrueAction,argparse._StoreFalseAction)):
+                if not isinstance(value,bool): raise ValueError("option '%s' expects true or false, got %r"%(action.option_strings[-1].lstrip("-"),value))
+                return value if isinstance(action,argparse._StoreTrueAction) else (not value)
+        def one(v):
+                if isinstance(v,dict): v=repr(v) #e.g. chem_pots1, mlip_kwargs (parsed later with ast.literal_eval)
+                if action.type is None: return v if not isinstance(v,(list,tuple)) else v
+                if action.type is parse_miller: return parse_miller(v if isinstance(v,str) else ",".join(str(x) for x in v))
+                if isinstance(v,bool) and action.type in (int,float): raise ValueError("option '%s' expects a number"%action.dest)
+                return action.type(v) if not isinstance(v,(list,tuple)) else action.type(" ".join(str(x) for x in v))
+        if action.nargs in ("+","*") or isinstance(action.nargs,int):
+                if isinstance(value,str): value=value.split()
+                elif not isinstance(value,(list,tuple)): value=[value]
+                return [one(v) for v in value]
+        return one(value)
+
+def apply_input_file(parser,path):
+        """Use the options of an input file as defaults of the parser (command-line options still override them)."""
+        values=load_input_file(path)
+        idx=_option_index(parser)
+        unknown=sorted(k for k in values if k not in idx)
+        if unknown: raise ValueError("Unknown option(s) in %s: %s"%(path,", ".join(unknown)))
+        defaults={}
+        for k,v in values.items():
+                a=idx[k]
+                defaults[a.dest]=_convert(a,v)
+                a.required=False #given in the file
+        parser.set_defaults(**defaults)
+        return defaults
+
+def save_input_file(args,path,parser=None):
+        """Write the parsed options (those differing from the defaults, plus the required ones) to a TOML/YAML/JSON file."""
+        parser=parser or build_parser()
+        defaults={a.dest:parser.get_default(a.dest) for a in parser._actions} #get_default: as argparse resolves shared dests
+        data={}
+        for k,v in sorted(vars(args).items()):
+                if k in INPUT_EXCLUDE or v is None: continue
+                if k in ("infile1","infile2","prog") or v!=defaults.get(k):
+                        if isinstance(v,tuple): v=list(v)
+                        if isinstance(v,list): v=[list(x) if isinstance(x,tuple) else x for x in v]
+                        data[k]=v
+        ext=os.path.splitext(path)[1].lower()
+        with open(path,"w") as f:
+                if ext==".json":
+                        import json; json.dump(data,f,indent=1)
+                elif ext in (".yaml",".yml"):
+                        import yaml; yaml.safe_dump(data,f,sort_keys=True)
+                else:
+                        f.write("# INTERFACER input file (use with: interfacer --input %s)\n"%os.path.basename(path))
+                        for k,v in data.items(): f.write("%s = %s\n"%(k,_toml_value(v)))
+        return data
+
+def _toml_value(v):
+        if isinstance(v,bool): return "true" if v else "false"
+        if isinstance(v,(int,float)): return repr(v)
+        if isinstance(v,str): return '"%s"'%v.replace("\\","\\\\").replace('"','\\"')
+        if isinstance(v,(list,tuple)): return "[%s]"%", ".join(_toml_value(x) for x in v)
+        raise ValueError("Cannot write %r to TOML"%(v,))
 
 
 def make_settings(args):
@@ -185,7 +283,16 @@ def make_settings(args):
 def main(argv=None):
         """Run INTERFACER with command-line arguments (sys.argv if argv is None). Returns 0 on success."""
         parser=build_parser()
+        #An input file (--input) provides defaults; options on the command line override them.
+        pre=argparse.ArgumentParser(add_help=False); pre.add_argument("--input","-inp",default=None)
+        known,_=pre.parse_known_args(argv)
+        if known.input:
+                try: apply_input_file(parser,known.input)
+                except (OSError,ValueError,TypeError,argparse.ArgumentTypeError) as err: parser.error("Cannot use input file %s: %s"%(known.input,err))
         args = parser.parse_args(argv)
+        if args.save_input:
+                save_input_file(args,args.save_input,build_parser())
+                print("Options written to %s"%args.save_input);stdout.flush()
 
         if args.quick: #Set the parameters for quick testing 
                args.prog='ase'; 

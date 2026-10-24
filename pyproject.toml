@@ -7,7 +7,7 @@ name = "interfacer"
 dynamic = ["version"]
 description = "Build and analyse solid-solid interfaces from two bulk structures (VASP, CASTEP and ASE calculators)"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "See repository" }
 dependencies = [
     "numpy>=1.24",
@@ -16,10 +16,14 @@ dependencies = [
     "ase>=3.23",
     "spglib>=2.0",
     "pymatgen>=2023.1",
+    "tomli; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
-test = ["pytest"]
+test = ["pytest", "pyyaml"]
+yaml = ["pyyaml"]
+docs = ["mkdocs-material", "mkdocstrings[python]"]
+lint = ["ruff"]
 # machine-learning potentials (-prog mlip --mlip <name>); install the ones you need
 mace = ["mace-torch"]
 chgnet = ["chgnet"]
