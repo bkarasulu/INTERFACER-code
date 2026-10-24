@@ -93,6 +93,13 @@ tests/  docs/  tutorials/  .github/workflows/ci.yml
 New CLI options (old options unchanged): `-prog mlip` (`ase` keeps its current meaning), `--mlip {mace,chgnet,...}`, `--mlip_model <name|path>`, `--device`, `--ase_opt {BFGS,FIRE,LBFGS}`, `--relax_cell_bulk`, `--fix_layers N`, `--input file.toml`, `--outdir`, `--overwrite`.
 Pipeline restarts become uniform for every engine (skip a step when its output already exists unless `--overwrite` is given).
 
+## Status
+- **Phase 1 done:**
+  - `symINTERFACER` merged.
+  - Heavy VASP files and `__pycache__` untracked.
+  - Bugs fixed in place (the script/`tools` layout is unchanged); see `known_issues.md` for the full list and the open issues.
+- **Phase 2 started:** `tests/` has 43 regression and end-to-end tests (ASE/LJ, EMT and a VASP dry run).
+
 ## Roadmap (phases, each one or more commits on `claude/exciting-hamilton-eunp54`)
 1. **Housekeeping.** Merge `symINTERFACER`. Remove `__pycache__` and the heavy VASP files (POTCAR, WAVECAR, CHG*, DOSCAR, EIGENVAL, vasprun.xml, PCDAT) from tracking, and add them to `.gitignore`. Finish the bug audit and record it in `docs/known_issues.md`.
 2. **Characterisation tests first.** Using the ASE/LJ and EMT engines, write tests that capture current behaviour of the pure geometry and analysis functions (`make_slab`, `slab_aligner`, `misfit`, `surf_area`, `get_fu`, `calculate_SFE`, `find_commensurate_supercell`) on small bulks (Cu fcc, Na bcc, NaCl, and the Na3OCl and Li3PS4 CIFs from Tutorials). These tests guard the refactor.

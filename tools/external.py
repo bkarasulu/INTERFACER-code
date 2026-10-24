@@ -1,7 +1,8 @@
 from __future__ import print_function
 import sys
 import numpy as np
-import argparse,math, os.path,fractions,time
+import argparse,math, os.path,time,re,shutil
+from collections import Counter
 import matplotlib.pyplot as plt
 
 from os import system,popen,chdir,getcwd,getenv,putenv,listdir
@@ -15,6 +16,7 @@ from spglib import find_primitive,standardize_cell,get_spacegroup #, niggli_redu
 #from ase.build import *
 import ase, ase.io, ase.build
 from ase.visualize import view
+from ase.visualize import view as ase_view #'view' is shadowed by a keyword argument in call_vasp
 from ase import Atoms,Atom
 import ase.calculators.castep,ase.calculators.vasp
 from ase.calculators.vasp import Vasp #,Vasp2 #requires ase 3.17.0
@@ -28,10 +30,29 @@ from ase.calculators.morse import MorsePotential as MP
 from ase.calculators.emt import EMT
 from ase.optimize import BFGS
 
-#Import other functions from the INTERFACER package
-from tools.builder import *
-#from tools.external import *
-from tools.analysis import *
+#NOTE: external.py does not depend on tools.builder/tools.analysis. The previous
+#circular 'from tools.x import *' imports made the available names depend on import order.
+
+LDAU_L={'s':0,'p':1,'d':2,'f':3} #orbital -> LDAUL value
+
+def _ldau_lists(asyms,hubU):
+    #Build the LDAUU/LDAUL lists (in the order of atom types in POSCAR) from a hubU dict, e.g. {'Fe':{'d':'2.7'}}.
+    ldauu=[];ldaul=[]
+    for at in asyms:
+        if at in hubU:
+            if len(hubU[at].keys())>1: print("WARNING: cannot set multiple U values for the same atom type (%s), setting to 0... "%at);ldauu.append(0);ldaul.append(0);continue
+            orb="".join(hubU[at].keys()).lower()
+            if orb not in LDAU_L: raise ValueError("Hubbard U: unknown orbital '%s' for %s (use s, p, d or f)."%(orb,at))
+            ldauu.append(float(hubU[at][orb] if orb in hubU[at] else list(hubU[at].values())[0]))
+            ldaul.append(LDAU_L[orb])
+        else:ldaul.append(0);ldauu.append(0)
+    return ldauu,ldaul
+
+def _vasp_cmd(exe,variant='std'):
+    #Return the VASP command using the requested executable variant (vasp_std/vasp_gam), with output redirected to vasp.out.
+    base=exe.split('>')[0].strip()
+    if re.search(r'vasp_(std|gam|ncl)',base): base=re.sub(r'vasp_(std|gam|ncl)','vasp_%s'%variant,base)
+    return base+" > vasp.out"
 
 def handle_magmoms(atoms, magmoms):
     """
@@ -65,30 +86,17 @@ def set_hubU(atoms,hubU):
     #atoms.calc.set(ldau_luj={'Si': {'L': 1, 'U': 3, 'J': 0}})
 
     if len(hubU)>0: #is not None:
-        atoms.calc.set(ldau=".True.",ldauprint=0,ldautype=2,lmaxmix=6)
-        ats=sorted(hubU.keys())
-        ldauu=[];ldaul=[]
-        #asyms=np.unique(atoms.get_chemical_symbols())#this automatically sorts the atom order
+        atoms.calc.set(ldau=True,ldauprint=0,ldautype=2,lmaxmix=6)
         asyms = list(dict.fromkeys(atoms.get_chemical_symbols()))
-        #print (atoms.get_chemical_symbols(),asyms)
-        for at in asyms:
-            if at in ats: #continue
-                if len(hubU[at].keys())>1: print("WARNING: cannot set multiple U values for the same atom type (%s), setting to 0... "%at);ldauu.append(0);ldaul.append(0);continue
-                #print (hubU[at].keys()[0])
-                orb="".join(hubU[at].keys())#[0] indexing in dict_key format is a problem in Python3.
-                ldauu.append(float(hubU[at][orb]))
-                if orb=="p":ldaul.append(1)
-                elif orb=="d":ldaul.append(2)
-                elif orb=="f":ldaul.append(3)
-            else:ldaul.append(0);ldauu.append(0)
+        ldauu,ldaul=_ldau_lists(asyms,hubU)
         atoms.calc.set(ldauj=[ 0 for i in range(len(asyms)) ])
         atoms.calc.set(ldauu=ldauu,ldaul=ldaul)
-        atoms.calc.set(lasph=1)#This is essential for accurate total energies and band structure calculations for f-elements (e.g. ceria), all 3d-elements (transition metal oxides), and magnetic atoms in the 2nd row (B-F atom), in particular if LDA+U or hybrid functionals or meta-GGAs are used, since these functionals often result in aspherical charge densities.
+        atoms.calc.set(lasph=True)#This is essential for accurate total energies and band structure calculations for f-elements (e.g. ceria), all 3d-elements (transition metal oxides), and magnetic atoms in the 2nd row (B-F atom), in particular if LDA+U or hybrid functionals or meta-GGAs are used, since these functionals often result in aspherical charge densities.
     return atoms
 
 def get_potcar(elements, xc):
-    try:    vasppp = os.environ['VASP_PP_PATH']
-    except: print ("VASP_PP_PATH is not defined, but neededor VASP calculation setup. Terminating. ");exit()
+    vasppp = os.environ.get('VASP_PP_PATH')
+    if not vasppp: raise EnvironmentError("VASP_PP_PATH is not defined, but needed for VASP calculation setup.")
 
     ppdir = os.path.join(vasppp, xc)
 
@@ -100,8 +108,8 @@ def get_potcar(elements, xc):
     return pp
 
 def make_potcar(xc="potpaw_PBE",elements=None,wDir='./'):
-    try:    vasppp = os.environ['VASP_PP_PATH']
-    except: print ("VASP_PP_PATH is not defined, but neededor VASP calculation setup. Terminating. ");exit()
+    vasppp = os.environ.get('VASP_PP_PATH')
+    if not vasppp: raise EnvironmentError("VASP_PP_PATH is not defined, but needed for VASP calculation setup.")
 
     print('Making potcar using %s'%vasppp);stdout.flush();
 
@@ -110,8 +118,7 @@ def make_potcar(xc="potpaw_PBE",elements=None,wDir='./'):
         try: #VASP5 format.
             elements = open(wDir+"/POSCAR").readlines()[5].strip().split()
         except:
-            print ('Elements not given on command line and POSCAR not found')
-            sys.exit(-1)
+            raise ValueError('Elements not given on command line and POSCAR not found in %s'%wDir)
 
     pp = get_potcar(elements, xc)
 
@@ -119,20 +126,20 @@ def make_potcar(xc="potpaw_PBE",elements=None,wDir='./'):
     p.write(pp);    p.close()
 
 def vasp_continue(ifDel=0):
-        fl = listdir(".")
-        fl.sort()
-        #print fl
-        flag=0
+        #Back up the files of the previous run into the next free RUN<n> folder.
         ind=0
-        for fn in fl:
-                if fn[0:3]=="RUN" :
-                        ind = int(fn[-1])
+        for fn in listdir("."):
+                m=re.match(r'^RUN(\d+)$',fn)
+                if m: ind=max(ind,int(m.group(1))) #RUN10 was previously read as RUN0
 
         run="RUN%d"%(ind+1)
         print ("Previous data stored in %s."%run)
-        system('mkdir %s'%run)
-        system('cp * %s 2> /dev/null '%run)
-        if ifDel: system('rm WAVECAR CHGCAR')
+        os.makedirs(run,exist_ok=True)
+        for fn in listdir("."):
+                if os.path.isfile(fn): shutil.copy2(fn,run)
+        if ifDel:
+                for fn in ('WAVECAR','CHGCAR'):
+                        if os.path.exists(fn): os.remove(fn)
  
 def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
               name='./VASP-tmp',resDir="",
@@ -145,11 +152,11 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
               dry=False, readINCAR=1,setups='recommended'):
 
         #TODO: Read an external INCAR file for ENCUT, XC, KSPACING options
-        if not exe: exe=getenv('VASP_COMMAND') ;# print ('bk')
-        #if not exe: exe='vasp_std'
-        if not exe: 
-               if mpiexe=='mpirun': exe = "mpirun -n %d vasp_std > vasp.out"%(int(getenv('SLURM_NTASKS')))
-               elif mpiexe=='srun': exe = "srun -n %d vasp_std > vasp.out"%(int(getenv('SLURM_NTASKS')))
+        if not exe: exe=getenv('VASP_COMMAND')
+        if not exe:
+               nprocs=nproc or getenv('SLURM_NTASKS')
+               if nprocs and mpiexe in ('mpirun','srun'): exe = "%s -n %d vasp_std > vasp.out"%(mpiexe,int(nprocs))
+               else: exe = "vasp_std > vasp.out"
         #exe="mpirun -np 128 ~/APPS/vasp.5.4.4/bin/vasp_std > vasp.out&"
         os.environ['VASP_COMMAND']=exe
         print("VASP command: ", exe) #, os.environ['VASP_COMMAND'])
@@ -164,7 +171,7 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
 
         if calc!=None:
                 #This is good for assiging the settings from a previously created Calculator object (i.e. not to repeat all the settings the second time). None of the other options will be taken into account.
-                atoms.set_calculator(calc)
+                atoms.calc=calc
                 #manual VASP run icin ayri bir function yap ve burda ve asagida cagir.
                 chdir(calc.directory)
                 E=atoms.get_potential_energy()
@@ -187,10 +194,8 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
 
         try: 
                 calc = Vasp(atoms,restart=restart, directory="./", label='vasp', command=exe, txt=None) #ignore_bad_restart_file=False,
-                print ("Previous run was read successfully, checking if converged...")
-                #if Vasp.read_convergence(calc): print('Geom opt already converged...')
-                #else: print('Geom opt not converged; running a continuation job...')
-        except: #if restarting fails
+                if restart: print ("Previous run was read successfully, checking if converged...")
+        except Exception: #if restarting fails
                 print("Problem with restarting from the previous run. Starting a new calculation.")
                 calc = Vasp(atoms,restart=None, directory="./", label='vasp', command=exe, txt=None);restart=False
 
@@ -204,29 +209,33 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
                         #Standard ASE impletation for VASP-restart does not read the last geom for some reason, this is a simple trick to get the CONTCAR and same settigns from the prevoious run.
                         print ("Not converged, restarting from last point")
                         # #atoms=ase.io.read('CONTCAR') #no energy so must be repeated.
-                        # #atoms.set_calculator(calc)
+                        # #atoms.calc=calc
                         # vasp_continue() #copies prev. run  files into RUNX folder.
                         # #atoms.write('POSCAR',format='vasp',vasp5=1)
                         # #calc = Vasp(atoms,restart=restart, directory="./", label='vasp', command=exe, txt=None) #ignore_bad_restart_file=False,
                         # calc = Vasp(restart=True)
-                        # #atoms.set_calculator(calc)
+                        # #atoms.calc=calc
                         # atoms = calc.get_atoms()
 
-                        calc=Vasp()
+                        #The settings of the previous run are kept by reading its INCAR (and KPOINTS), and the run
+                        #is continued from the last geometry (CONTCAR) rather than the initial one (POSCAR).
+                        calc=Vasp(directory="./", label='vasp', command=exe, txt=None)
                         calc.read_incar(filename='INCAR')
-                        if os.path.exists("./OUTCAR"):   vasp_continue()
-                        atoms=ase.io.read("POSCAR",format="vasp")
-                        #atoms=ase.io.read(fname)
+                        if os.path.exists('KPOINTS'):
+                                try: calc.read_kpoints(filename='KPOINTS')
+                                except Exception as err: print("Could not read KPOINTS from the previous run:",err)
+                        vasp_continue()
+                        if os.path.exists("CONTCAR") and os.path.getsize("CONTCAR")>0: atoms=ase.io.read("CONTCAR",format="vasp")
+                        else: atoms=ase.io.read("POSCAR",format="vasp")
 
                         calc.set(xc=xc)
-                        #setups='recommended'
-                        #setups='minimal'
                         calc.set(setups=setups)
-                        calc.directory="."#cdir
-                        atoms.set_calculator(calc)
+                        atoms.calc=calc
+                        if not dry:
+                                atoms.get_potential_energy()
+                                atoms=ase.io.read('vasprun.xml',index=-1)
 
-
-                E=atoms.get_potential_energy()
+                E=atoms.get_potential_energy() if not dry else 0.0
                 chdir(cwd)
                 return E,atoms
 
@@ -242,23 +251,20 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
  
         if typ.lower()=='geom':IBRION=2 #CG algo
         elif typ.lower()=="sp": IBRION=-1;nsw=0
+        else: chdir(cwd); raise ValueError("call_vasp: typ must be 'sp' or 'geom', got '%s'"%typ)
 
         if FixCell:isif=2 #fixed cell optimization
         elif FixVol:isif=4 #cell dimensions can vary but total volume is kept fixed (good for keeping the vacuum padding).
         else:isif=3 #full cell relaxation.
         #if vac<=2:isif=3 #this must be set to relax the cell only in the vacuum direction (i.e. c-axis), but not possible in VASP.
 
-        #calc.initialize()
-        ncore=1
         npar=int(np.sqrt(ncores))
         if ncores%npar!=0 or npar==1:npar=8
-        if len(atoms)<20:ncore=16 #but NPAR should be unset/commented, this is neded for the Sub-Space-Matrix is not hermitian in the Davidson algorithm.
-        ncore=16 #only 8 works for small systems like 2-atom graphene.
-        calc.set(xc=xc.lower(),encut=ENCUT,prec="Normal",ediff=etol, ediffg=ediffg,sigma=sigma,reciprocal=0,algo=algo,ispin=ispin,lreal="AUTO",nelm=nelm,ibrion=IBRION,gamma=gamma,isif=isif,nsw=nsw,ismear=ismear,npar=npar) #ncore=ncore)#,npar=npar)
-        calc.set(nwrite=1, lcharg=0 , lwave=0) #Wavecar could be used for next run, specially for ISPIN=2
-        if ispin==2:calc.set(lwave=1) 
+        calc.set(xc=xc.lower(),encut=ENCUT,prec="Normal",ediff=etol, ediffg=ediffg,sigma=sigma,reciprocal=False,algo=algo,ispin=ispin,lreal="AUTO",nelm=nelm,ibrion=IBRION,gamma=bool(gamma),isif=isif,nsw=nsw,ismear=ismear,npar=npar) #ncore=ncore)#,npar=npar)
+        calc.set(nwrite=1, lcharg=False, lwave=False) #Wavecar could be used for next run, specially for ISPIN=2
+        if ispin==2:calc.set(lwave=True) 
 
-        calc.set(lmaxmix=6,lasph=1) #need when there is a trans metal.
+        calc.set(lmaxmix=6,lasph=True) #need when there is a trans metal.
 
         if nosymm: calc.set(isym=0)
         #TODO add support for reading INCAR file if exists.
@@ -268,28 +274,29 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
         if KPgrid: #KPgrid given
                 #calc.cell.kpoint_mp_grid = KPgrid #def='1 1 1'
                 kpgrid=[int(x) for x in KPgrid.split()]
-                import ase.dft.kpoints
-                kpts = ase.dft.kpoints.monkhorst_pack(kpgrid) #+  [1./2./kpgrid[0],1./2./kpgrid[1],1./2./kpgrid[2]] #for placing Gamma point in the center.  #CHECK if works CORRECTLY!!
-                calc.set(kpts=kpts)
-                if KPgrid=='1 1 1': 
+                #Pass the grid itself (written as a Gamma-centred/Monkhorst-Pack KPOINTS file depending on 'gamma').
+                #Previously an explicit list of Monkhorst-Pack points (in reciprocal units) was passed with reciprocal=False,
+                #so VASP interpreted them as Cartesian coordinates.
+                calc.set(kpts=kpgrid)
+                if kpgrid==[1,1,1]: 
                         print ("VASP gamma-only implementation (vasp_gam) is activated.")
-                        cmd=exe.split('vasp_')[0]+"vasp_gam >vasp.out"
+                        cmd=_vasp_cmd(exe,'gam')
                 else:
                         print ("Multiple KPOINTS: VASP standard implementation (vasp_std) is activated.")
-                        cmd=exe.split('vasp_')[0]+"vasp_std >vasp.out"
+                        cmd=_vasp_cmd(exe,'std')
 
                 calc.command=cmd
                 #print(cmd)
 
         elif KPspacing: 
-                calc.set(kspacing=KPspacing,kgamma=gamma)#calc.cell.kpoints_mp_spacing = str(KPspacing) #default=0.05 2*pi/A
+                calc.set(kspacing=KPspacing,kgamma=bool(gamma))#calc.cell.kpoints_mp_spacing = str(KPspacing) #default=0.05 2*pi/A
                 print ("Multiple KPOINTS: VASP standard implementation (vasp_std) is activated.")
-                cmd=exe.split('vasp_')[0]+"vasp_std >vasp.out"
+                cmd=_vasp_cmd(exe,'std')
                 calc.command=cmd
         
         else:
-               print('call_vasp: Either KPspacing or KPgrid keyword must be defined! Terminating... ')
-               exit()
+               chdir(cwd)
+               raise ValueError('call_vasp: Either KPspacing or KPgrid keyword must be defined!')
 
         a,b,c,_,_,_=atoms.cell.cellpar()
         if a >35 or b>35 or c>35: calc.set(amin=0.01) #gor super large cells to avoid the charge sloshing along the long lattice vector. 
@@ -297,10 +304,9 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
                 calc.set(amix=0.1,bmix=3.0,lmaxmix=6)
 
         if (dipolCorr and dipolCorr.lower()!='none'):
-                calc.set(ldipol = ".TRUE.") #this one switches on  the corrections to the potential and thus forces
-                if dipolDir=='x':idipol=1 #IDIPOL switches on the single point energy corrections.
-                elif dipolDir=='y':idipol=2
-                elif dipolDir=='z':idipol=3
+                calc.set(ldipol = True) #this one switches on  the corrections to the potential and thus forces
+                if dipolDir.lower() not in ('x','y','z'): chdir(cwd); raise ValueError("call_vasp: dipolDir must be x, y or z")
+                idipol={'x':1,'y':2,'z':3}[dipolDir.lower()] #IDIPOL switches on the single point energy corrections.
                 calc.set(idipol = idipol) #no need to set DIPOL keyword (giving the charge center, if no charged dipole in the system (i.e. total charge=0) 
 
                 #One needs to set the DIPOL keyword (i.e. the center of the net charge in scaled/fractional coordinates), as the automated algorithm leads to terrible convergence. It should be the centre of charge (that requires the CHG file to be created and analysed to be determined), instead  the centre of mass could be used as a good approximation. Setting DIPOL helps even the veryslow convergence when the LDIPOL=true. It even affects the total spin of the system (when ISPIN=2).
@@ -310,26 +316,11 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
 
         if 1 and len(hubU)!=0: #is not None:
                 #if len(hubU)>0: atoms=set_hubU(atoms,hubU)
-                calc.set(ldau=".True.",ldauprint=0,ldautype=2,lmaxmix=6)
-                ats=sorted(hubU.keys())
-                #asyms=np.unique(atoms.get_chemical_symbols())
-                #asyms=popen('head -n1 POSCAR',"r").read()[0:-1].split() #this doen't work always well.
-
-                #if len(asyms)==0: print ("DFT-U Warning: Atomic info cannot be read from the head line of POSCAR")
-                ldauu=[];ldaul=[]
-                for at in asyms:
-                        if at in ats: #continue
-                                if len(hubU[at].keys())>1: print("WARNING: cannot set multiple U values for the same atom type (%s), setting to 0... "%at);ldauu.append(0);ldaul.append(0);continue
-                                #print (hubU[at].keys()[0])
-                                orb="".join(hubU[at].keys())#[0] indexing in dict_key format is a problem in Python3.
-                                ldauu.append(float(hubU[at][orb]))
-                                if orb=="p":ldaul.append(1)
-                                elif orb=="d":ldaul.append(2)
-                                elif orb=="f":ldaul.append(3)
-                        else:ldaul.append(0);ldauu.append(0)
+                calc.set(ldau=True,ldauprint=0,ldautype=2,lmaxmix=6)
+                ldauu,ldaul=_ldau_lists(asyms,hubU)
                 calc.set(ldauj=[ 0 for i in range(len(asyms)) ])
                 calc.set(ldauu=ldauu,ldaul=ldaul)
-                calc.set(lasph=1)#This is essential for accurate total energies and band structure calculations for f-elements (e.g. ceria), all 3d-elements (transition metal oxides), and magnetic atoms in the 2nd row (B-F atom), in particular if LDA+U or hybrid functionals or meta-GGAs are used, since these functionals often result in aspherical charge densities.
+                calc.set(lasph=True)#This is essential for accurate total energies and band structure calculations for f-elements (e.g. ceria), all 3d-elements (transition metal oxides), and magnetic atoms in the 2nd row (B-F atom), in particular if LDA+U or hybrid functionals or meta-GGAs are used, since these functionals often result in aspherical charge densities.
 
         if magmom: 
                 # Adding MAGMOM and ISPIN to INCAR if -mgm or --magmoms is defined.
@@ -341,11 +332,17 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
                 #from ase.build import molecule
                 
                 #Preparations
-                setups={'base': 'recommended'}
+                if passivate.lower() not in ('bot','top'): chdir(cwd); raise ValueError("call_vasp: passivate must be 'bot' or 'top'")
+                setups={'base': setups if isinstance(setups,str) else 'recommended'}
+                #Covalent radii: read from $HOME/covalent_radii.dat if present, otherwise use ASE's values.
+                from ase.data import covalent_radii as ase_cov_radii, atomic_numbers
                 cov_radii={}
-                for ln in open(os.environ['HOME']+"/covalent_radii.dat",'r'):
-                        x=ln.split()
-                        cov_radii[x[0]]=float(x[1])
+                for el in set(asyms+['H']): cov_radii[el]=float(ase_cov_radii[atomic_numbers[el]])
+                crfile=os.path.join(os.path.expanduser('~'),"covalent_radii.dat")
+                if os.path.exists(crfile):
+                        for ln in open(crfile,'r'):
+                                x=ln.split()
+                                if len(x)>=2: cov_radii[x[0]]=float(x[1])
 
                 #Get the valance electron for each atom type from corr. POTCAR file (ZVAL)
 
@@ -371,23 +368,11 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
                         for at in atoms:   coord.append(len(nl.get_neighbors(at.index)[0]))
                 else:  # bothways is on by default in this. This works well. #THIS DOES NOT WORK WELL EITHER, USE OVITO ISNTEAD (GIVES THE BEST RESULTS).
                         i,j=neighbor_list('ij',atoms,cutoff=cov_cutoff)#natural_cutoffs(atoms)) #there is a bug for determining the neighbours for atoms located at the origin. #i: index of the central atom, j: index of the neighbour.
-                        coord = np.bincount(i) #Nx1 ; coutns no of occurences of each value in the input array. #one could use np.unique() for counts as well.
+                        coord = np.bincount(i,minlength=len(atoms)) #no of neighbours of each atom (also those without neighbours)
 
-                        #unique, counts = np.unique(i, return_counts=True)
-                        #print(unique, counts)   
-
-                        #The dictionary of neighbour types for each atom index.
-                        ntypes={}
-                        tmp=[]
-                        pkey=""
-                        for k in range(len(i)):
-                                #print(i[k],j[k])
-                                key=str(i[k])
-                                #if key not in ntypes: 
-                                if k!=0 and key!=pkey: ntypes[pkey]=tmp;tmp=[];pkey=key#[atoms[j[k]].type]
-                                elif k==0:pkey=key
-                                elif k==len(i)-1: ntypes[key]=tmp
-                                tmp.append(atoms[j[k]].symbol)
+                        #The dictionary of neighbour types for each atom index (every atom has an entry).
+                        ntypes={str(k):[] for k in range(len(atoms))}
+                        for k in range(len(i)): ntypes[str(i[k])].append(atoms[j[k]].symbol)
 
                         for k in sorted(ntypes.keys()): 
                                 #k =int(k)
@@ -441,20 +426,17 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
                 #Move layer determination to  a function.
                 #Do also the reverse way (so matching topmost layer to bottom layer).
                 tol=1e-5
-                for i in range(4):
-                        #flag=0
-                        #at1=atoms[i]
+                nl=min(4,len(layers))
+                for i in range(nl):
                         lay1=layers[i]
-                        for j in range(-1,-5,-1):
-                                #flag=0
+                        for j in range(-1,-nl-1,-1):
                                 lay2=layers[j]
-                                #at2=atoms
                                 if len(lay1)!=len(lay2): continue #does not match
                                 for k in range(len(lay1)):
                                         pos1=atoms[lay1[k]].position  ; pos2=atoms[lay2[k]].position
                                         if abs(pos1[0]-pos2[0]) > tol or abs(pos1[1]-pos2[1]) > tol: break#layers do not match.
-                                #flag=1
-                                print ("Layer #%d matches layer #%d"%(i,j))
+                                else:
+                                        print ("Layer #%d matches layer #%d"%(i,j))
 
 
                 #Max occurence of coordination no for a given atom type can also be used, instead of avg coord no.
@@ -465,16 +447,17 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
                             crds[aty]=[coord[at.index] for at in atoms if at.symbol==aty]
                             common_crd[aty]=np.argmax(np.bincount(crds[aty]))
                             #Determine the neighbour types.
-                            nty[aty]=[ntypes[str(at.index)] for at in atoms if at.symbol==aty] #Do we ned to store this??
-                            unique, counts = np.unique(nty[aty], return_counts=True)
-                            counts, unique =zip(*sorted(zip(counts, unique),reverse=1))
-                            #print(unique, counts)
-                            common_ntypes[aty]=unique[0]
+                            nty[aty]=[tuple(sorted(ntypes[str(at.index)])) for at in atoms if at.symbol==aty] #Do we ned to store this??
+                            common_ntypes[aty]=list(Counter(nty[aty]).most_common(1)[0][0]) #most common neighbour environment
                             #Get the valence electron no from the POTCAR files.
-                            potfile="%s/potpaw/%s/POTCAR"%(getenv('VASP_PP_PATH'),aty)
+                            val=None
+                            for ppd in ('potpaw','potpaw_PBE'):
+                                    potfile="%s/%s/%s/POTCAR"%(getenv('VASP_PP_PATH'),ppd,aty)
+                                    if os.path.exists(potfile): break
                             with open(potfile,'r') as f:
                                     for ln in f:
                                             if  'ZVAL' in ln:  val=float(ln.split('ZVAL')[-1].split()[1]);  break
+                            if val is None: chdir(cwd); raise ValueError("call_vasp: ZVAL not found in %s"%potfile)
                             if val>8: val-=8
                             valance[aty]=val
                             dangling[aty]=val/common_crd[aty]
@@ -525,7 +508,7 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
 
                                 Hcnt+=1
                                 offset=(cov_radii[at.symbol]+cov_radii['H'])*1.0
-                                if passivate=='top': offset=-offset
+                                if passivate.lower()=='top': offset=-offset
                                 atoms.extend(Atom("H",(at.position[0],at.position[1],at.position[2]-offset)))
                                 #Determine the amont of missing e-.
                                 missing=[];zval=0.0
@@ -560,7 +543,7 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
                                                 print (at,crd, j)
                                                 Hcnt+=1
                                                 offset=(cov_radii[at.symbol]+cov_radii['H'])*1.0
-                                                if passivate=='top': offset=-offset
+                                                if passivate.lower()=='top': offset=-offset
                                                 atoms.extend(Atom("H",(at.position[0],at.position[1],at.position[2]-offset)))
                                                 #Determine the amont of missing e-.
                                                 missing=[];zval=0.0
@@ -585,15 +568,18 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
                 print(atoms)
                 #atoms=ase.build.sort(atoms)
                 #atoms.sort()
-                if view:view(atoms)
+                if view:ase_view(atoms)
 
                 if dipolCorr and dipolCorr.lower()!='none':  calc.set(dipol=atoms.get_center_of_mass(scaled=1))
 
 
-        atoms.set_calculator(calc)      
+        atoms.calc=calc      
         
 
-        if dry: #do not run VASP calculation.
+        if dry: #do not run VASP calculation; write the input files (if possible) for checking.
+                try: calc.write_input(atoms)
+                except Exception as err: print("call_vasp (dry run): could not write all VASP input files in %s: %r"%(wDir,err))
+                atoms.calc=None #no energy available; prevents an accidental VASP run later on
                 chdir(cwd)
                 return 0.0,atoms
 
@@ -625,8 +611,8 @@ def call_vasp_v2(fname='',exe=None,xc='pbe',mgms=None,hubU={},makepotcar=0,potca
     cwd=os.getcwd()
 
     seed=fname.split('.')[0]
-    try:system();chdir(seed)
-    except:print('Cannot change to %s directory, using %s instead'%(seed,cwd))
+    try:chdir(seed)
+    except Exception:print('Cannot change to %s directory, using %s instead'%(seed,cwd))
 
     print('Working dir: %s'%getcwd());stdout.flush();
 
@@ -658,7 +644,7 @@ def call_vasp_v2(fname='',exe=None,xc='pbe',mgms=None,hubU={},makepotcar=0,potca
         setups='recommended'
         #setups='minimal'
         calc.set(setups=setups)
-        atoms.set_calculator(calc)
+        atoms.calc=calc
 
     # Adding MAGMOM and ISPIN to INCAR if -mgm or --magmoms is defined.
     atoms = handle_magmoms(atoms=atoms, magmoms=mgms) 
@@ -687,9 +673,9 @@ def call_castep(atoms,calc=None, typ="sp",PP='',wDir='./CASTEP-tmp',name='try',p
 
     if calc!=None:
             #This is good for assiging the settings from a previously created Calculator object (i.e. not to repeat all the settings the second time). None of the other options will be taken into account.
-            atoms.set_calculator(calc)
+            atoms.calc=calc
             #manual CASTEP run icin ayri bir function yap ve burda ve asagida cagir.
-            return atoms 
+            return atoms.get_potential_energy(),atoms #same (E, atoms) return format as the other paths
 
     calc = ase.calculators.castep.Castep()
 
@@ -730,6 +716,7 @@ def call_castep(atoms,calc=None, typ="sp",PP='',wDir='./CASTEP-tmp',name='try',p
     calc.cell.snap_to_symmetry=True
     if KPspacing:calc.cell.kpoints_mp_spacing = str(KPspacing) #default=0.05 2*pi/A
     else: 
+            if not KPgrid: raise ValueError("call_castep: either KPspacing or KPgrid must be given.")
             calc.cell.kpoint_mp_grid = KPgrid #def='1 1 1'
             kpgrid=[float(x) for x in KPgrid.split()]
             calc.cell.kpoints_mp_offset='%.4f %.4f %.4f'%(1./2./kpgrid[0],1./2./kpgrid[1],1./2./kpgrid[2]) #for placing Gamma point in the center.
@@ -742,14 +729,16 @@ def call_castep(atoms,calc=None, typ="sp",PP='',wDir='./CASTEP-tmp',name='try',p
             #c = FixAtoms(indices=FixList)
             #atoms.set_constraint(c) #This only work if the CASTEP is called by ASE (not for manual runs).
 
+            #CASTEP expects the ion index within its species (1-based), not the global atom index.
+            symbols=atoms.get_chemical_symbols()
             str1=[]
             i=1
             for at in FixList:
                     atom=atoms[at]
-                    #for j in range(1,4):
-                    str1.append("%d %s %d %.8f %.8f %.8f"%(i,atom.symbol,atom.index,1,0,0))
-                    str1.append("%d %s %d %.8f %.8f %.8f"%(i+1,atom.symbol,atom.index,0,1,0))
-                    str1.append("%d %s %d %.8f %.8f %.8f"%(i+2,atom.symbol,atom.index,0,0,1))
+                    sp_ind=symbols[:atom.index+1].count(atom.symbol)
+                    str1.append("%d %s %d %.8f %.8f %.8f"%(i,atom.symbol,sp_ind,1,0,0))
+                    str1.append("%d %s %d %.8f %.8f %.8f"%(i+1,atom.symbol,sp_ind,0,1,0))
+                    str1.append("%d %s %d %.8f %.8f %.8f"%(i+2,atom.symbol,sp_ind,0,0,1))
                     i+=3
 
             calc.cell.ionic_constraints=str1 #a list object needed as input.
@@ -773,7 +762,8 @@ def call_castep(atoms,calc=None, typ="sp",PP='',wDir='./CASTEP-tmp',name='try',p
      
     #This overwrites the task paramter from the param input.
     if typ.lower()=="sp":    calc.param.task = 'SinglePoint'
-    elif typ.lower()=="geom":calc.Task = 'GeometryOptimization'
+    elif typ.lower()=="geom":calc.param.task = 'GeometryOptimization'
+    else: raise ValueError("call_castep: typ must be 'sp' or 'geom', got '%s'"%typ)
     
     if dipolCorr: #def: No dipole corrections. 
         if dipolCorr.upper()=="SC": calc.param.dipole_correction= "SELFCONSISTENT"
@@ -786,7 +776,7 @@ def call_castep(atoms,calc=None, typ="sp",PP='',wDir='./CASTEP-tmp',name='try',p
         
     
     #calc.initialize()#Creates all needed input in the _directory. (Not needed for actual run.)
-    atoms.set_calculator(calc)  #Set for the previously created interface
+    atoms.calc=calc  #Set for the previously created interface
 
     if ENCUT!=0: calc.param.cut_off_energy=ENCUT
     
@@ -796,8 +786,7 @@ def call_castep(atoms,calc=None, typ="sp",PP='',wDir='./CASTEP-tmp',name='try',p
         PP=PP.upper()
         #print PP.lower().find(str(calc.param.xc_functional).lower())
         if PP != "OTF" and  PP.find(fnc)== -1:
-                print("There is a problem with the pseudopotential choice. \nSelected PP does not match with XC functional being used: ",PP,fnc)
-                exit()
+                raise ValueError("Selected CASTEP pseudopotential (%s) does not match the XC functional being used (%s)."%(PP,fnc))
         elif PP=="OTF": None #default is OTF anyway.
         else: atoms.calc.set_pspot(PP)  #This automatically sets the pseudo-potential for all present species to <Species>_<library>.usp. Make sure that _castep_pp_path is set correctly in the shell.
 
@@ -833,6 +822,7 @@ def call_castep(atoms,calc=None, typ="sp",PP='',wDir='./CASTEP-tmp',name='try',p
                     calc._copy_pspots=True
                     calc.initialize()
 
+                    cwd=os.getcwd()
                     chdir(wDir)
                     
                     system(str1) #PSPOT missing in the folder
@@ -846,23 +836,24 @@ def call_castep(atoms,calc=None, typ="sp",PP='',wDir='./CASTEP-tmp',name='try',p
                             except:x=None
 
                             if x == None: x=parseCASTEP("%s.castep"%(name),atoms=atoms);#print ("bk",atoms)
+                            if x == None:
+                                    chdir(cwd)
+                                    raise RuntimeError("call_castep: could not parse the results of %s (see %s/%s.castep)"%(name,wDir,name))
 
                             if x[-2]==False: print("parseCASTEP: WARNING: Geometry optimization in %s.geom is not converged!"%name)
                     else:
-                            print("parseCASTEP: ERROR: Calculation type is not supported.")
-                            x=None
-                    chdir("..")
+                            chdir(cwd)
+                            raise ValueError("call_castep: calculation type %s is not supported."%task)
+                    chdir(cwd)
                     return x
                     
             else: #CASTEP calculation is not done here. It will be called in the main script, when trying to reach the attributes, e.g. atoms.get_potential_energy().
-                    return atoms
+                    return None,atoms
     else:
             if calc.dryrun_ok():
-                    return atoms
+                    return 0.0,atoms #dry run: no energy
             else:
-                    print("CASTEP run: Found error in input")
-                    print((calc._error))
-                    return None
+                    raise RuntimeError("CASTEP dry run: found error in input: %s"%calc._error)
             
 def parseCASTEP(fname,atoms=None):      #This function has become obselete
         #TODO: fix wrong atomic order (if the atoms object is ordered).
@@ -881,8 +872,7 @@ def parseCASTEP(fname,atoms=None):      #This function has become obselete
 
         print("Parsing ",fname)
         if fname.split(".")[-1]=="geom":
-                try: tSteps=len(popen("grep '<-- c' %s"%fname).readlines())-1
-                except:tSteps=0
+                with open(fname) as f: tSteps=sum(1 for ln in f if "<-- c" in ln)-1
 
                 flag=0
                 for ln in open(fname,'r'):#.readlines(): #readlines is outdated and slow.
@@ -914,10 +904,10 @@ def parseCASTEP(fname,atoms=None):      #This function has become obselete
                         elif "Unit Cell" in ln: #for getting only the last one
                                 tSteps+=1
                                 forces=[];s=[];h=[];latFlag=0;fract=[];ids=[]
-                        elif search("Final free energy \(E-TS\)    =",ln):H=float(ln.split("=")[1].split()[0])
-                        elif search("Final energy, E",ln): E=float(ln.split("=")[1].split()[0])
-                        elif search("\*  x ",ln) or search("\*  y ",ln) or search("\*  z ",ln): s.append([float(i) for i in ln.split()[2:5]]) #Stress tensor already in GPa.
-                        elif len(ln)>2 and ln[1]=="\*" and len(ln.split())==7:
+                        elif search(r"Final free energy \(E-TS\)    =",ln):H=float(ln.split("=")[1].split()[0])
+                        elif search(r"Final energy, E",ln): E=float(ln.split("=")[1].split()[0])
+                        elif search(r"\*  x ",ln) or search(r"\*  y ",ln) or search(r"\*  z ",ln): s.append([float(i) for i in ln.split()[2:5]]) #Stress tensor already in GPa.
+                        elif ln.lstrip().startswith("*") and len(ln.split())==7: #force block lines: '*  Li  1  fx fy fz  *'
                                 forces.append([float(i) for i in ln.split()[2:5]]) #already in eV/A
                         elif "            x" in ln and len(ln.split())==7:
                                 fract.append([float(i) for i in ln.split()[3:6]])
@@ -973,36 +963,42 @@ def parseCASTEP_ASE(fname,atoms=None):
         atoms=ase.io.read(fname,index=-1)
         return atoms.get_potential_energy(),atoms #this gets the final enthalpy rather than E-0.5TS
 
-def call_ase(atoms,opt=False,ctype=LJ,fmax=0.05,steps=200):
+def call_ase(atoms,opt=False,ctype='LJ',fmax=0.05,steps=200,outdir='OUTPUT'):
         #THe dfault paramters are completely irrelvant aand provided to be used in test calculations.
         #TODO: add support for user to define their own LJ/Morse params.
-        if ctype.upper()=='LJ': calc=LJ()
-        elif ctype.lower() in ['morse','m','mor']:calc=MP()
-        elif ctype.upper()=='EMT':calc=EMT()
-        else: print('ASE calculator type not supported, try Morse or LJ..');return None
+        #Returns (E, atoms) like call_vasp/call_castep; atoms is optimised in place when opt=True.
+        if isinstance(ctype,str) and ctype.upper()=='LJ': calc=LJ()
+        elif isinstance(ctype,str) and ctype.lower() in ['morse','m','mor']:calc=MP()
+        elif isinstance(ctype,str) and ctype.upper()=='EMT':calc=EMT()
+        elif not isinstance(ctype,str) and ctype is not None: calc=ctype() if isinstance(ctype,type) else ctype #a calculator class or object
+        else: raise ValueError('call_ase: ASE calculator type %s not supported, use LJ, Morse or EMT.'%ctype)
+        cname=ctype if isinstance(ctype,str) else type(calc).__name__
 
-        #if len(atoms)==2:atoms=atoms.repeat((2,2,2)) #if two atom system, then LJ energy is zero
-        del(atoms.calc)
-        atoms.set_calculator(calc)
+        atoms.calc = calc
         
         if opt:
-                print('Optimising the %s structure using ASE/%s'%(atoms.get_chemical_formula(empirical=1),ctype))
+                print('Optimising the %s structure using ASE/%s'%(atoms.get_chemical_formula(empirical=1),cname))
+                traj=None
+                if outdir:
+                        os.makedirs(outdir,exist_ok=True)
+                        traj=os.path.join(outdir,'%s_opt.traj'%getattr(atoms,'name','structure'))
                 try:
-                        dyn = BFGS(atoms,trajectory='OUTPUT/%s_opt.traj'%atoms.name)
+                        dyn = BFGS(atoms,trajectory=traj)
                         dyn.run(fmax=fmax,steps=steps)
-                        return atoms.get_potential_energy(),atoms 
                 except Exception as err: 
-                        print("call_ase: Error in geometry opt using ASE:  ", err)
-                        return 0.0,atoms
+                        #Previously an energy of 0.0 was returned silently here. Now the energy of the last geometry is returned (with a warning).
+                        print("call_ase: WARNING: Error in geometry opt using ASE (returning the energy of the last geometry):  ", err)
+                return atoms.get_potential_energy(),atoms 
         else:
-               print('Getting SP energy using ASE/%s'%ctype)
+               print('Getting SP energy using ASE/%s'%cname)
                return atoms.get_potential_energy(),atoms 
         
 #TODO: Add DFTB and GPAW!
 def call_dftb(atoms):
        #This requires rigorous testing, as I  only took the example directly from ASE website.
        #https://wiki.fysik.dtu.dk/ase/ase/calculators/dftb.html
-       #requires
+       #requires DFTB+ (and the ASE Dftb calculator settings, e.g. DFTB_PREFIX).
+       from ase.calculators.dftb import Dftb
        calc = Dftb(Hamiltonian_='DFTB',  # this line is included by default
             Hamiltonian_SCC='Yes',
             Hamiltonian_SCCTolerance=1e-8,
@@ -1010,7 +1006,7 @@ def call_dftb(atoms):
             Hamiltonian_MaxAngularMomentum_H='s',
             Hamiltonian_MaxAngularMomentum_O='p')
        #or read the 'dftb_in.hsd' file
-       atoms.set_calculator(calc)
+       atoms.calc=calc
        return atoms.get_potential_energy(), atoms
 
 

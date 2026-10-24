@@ -1,0 +1,44 @@
+import importlib.util
+import os
+import sys
+
+import pytest
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+
+@pytest.fixture(scope="session")
+def interfacer():
+    """The interfacer-new.py script imported as a module (its main block is not run)."""
+    spec = importlib.util.spec_from_file_location("interfacer_main", os.path.join(ROOT, "interfacer-new.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@pytest.fixture
+def cu_bulk():
+    from ase.build import bulk
+    return bulk("Cu", "fcc", a=3.61, cubic=True)
+
+
+@pytest.fixture
+def ni_bulk():
+    from ase.build import bulk
+    return bulk("Ni", "fcc", a=3.52, cubic=True)
+
+
+@pytest.fixture
+def fake_potcars(tmp_path, monkeypatch):
+    """Minimal placeholder POTCAR files, enough for ASE to write VASP inputs (no VASP run)."""
+    pp = tmp_path / "pp"
+    for el in ("Cu", "Ni", "H"):
+        d = pp / "potpaw_PBE" / el
+        d.mkdir(parents=True)
+        (d / "POTCAR").write_text(
+            f"  PAW_PBE {el} 06Sep2000\n 11.0\n   VRHFIN ={el}: d s\n   TITEL  = PAW_PBE {el} 06Sep2000\n"
+            "   POMASS =   63.546; ZVAL   =   11.000    mass and valenz\n   ENMAX  =  295.446; ENMIN  =  221.585 eV\n End of Dataset\n")
+    monkeypatch.setenv("VASP_PP_PATH", str(pp))
+    return pp

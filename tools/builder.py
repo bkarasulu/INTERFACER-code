@@ -4,7 +4,7 @@ import ase.io
 import ase
 from ase.visualize import view
 from os import system
-from sys import exit
+from sys import exit, stdout
 #import fractions
 import math
 import ase.build
@@ -16,9 +16,7 @@ import matplotlib.pyplot as plt
 from ase import Atoms
 from ase.build import surface
 from ase.io import read, write
-from ase.utils.structure_comparator import SymmetryEquivalenceCheck
 from spglib import find_primitive, get_symmetry
-from tqdm import tqdm
 
 # pymatgen modules for symmetric surfaces
 from pymatgen.core import Structure, Lattice
@@ -26,10 +24,8 @@ from pymatgen.core.surface import SlabGenerator, Slab
 from pymatgen.io.ase import AseAtomsAdaptor
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 
-#Import other functions from the INTERFACER package
-#from tools.builder import *
-from tools.external import *
-from tools.analysis import *
+#NOTE: builder.py does not depend on tools.external/tools.analysis. The previous
+#circular 'from tools.x import *' imports made the available names depend on import order.
 
 #Surface creation and alignment tool by James P. Darby.
 #This is the former join8.py
@@ -94,20 +90,17 @@ def get_cut_vectors(miller, atoms_cell):
     elif len(zero_inds)==1:
         #set d to be the axis that is in the plane    
         d = [0,0,0]
-        d[int(zero_inds[0])] = 1
+        d[int(zero_inds[0][0])] = 1
 
         #construct e from the other 2 vectors
         s = set((0,1,2))
-        s.remove(int(zero_inds[0]))
-        print("s is",s)
+        s.remove(int(zero_inds[0][0]))
         H = s.pop()
         K = s.pop()
         lm = lcm(miller[H],miller[K])
-        print(H,miller[H],K,miller[K],lm)
         e = [0,0,0]
         e[H] = lm/miller[H]
         e[K] = -lm/miller[K]
-        print("e is", e)
         
         #pick f - could be improved...
         f = [0,0,0]
@@ -304,9 +297,10 @@ def permute_surface(bulk_ase, miller_plane, minimum_thickness, vacuum):
         sym_slabs = slabgen.nonstoichiometric_symmetrized_slab(slab)
         for j, sym_slab in enumerate(sym_slabs):
             if sym_slab.is_symmetric():
-                sym_slab_ase = AseAtomsAdaptor.get_atoms(sym_slab)
-                # checl that slab has minimum thickness
-                if sym_slab_ase.cell.cellpar()[2] - 2*vacuum <= minimum_thickness:
+                sym_slab_ase = standardise_slab(AseAtomsAdaptor.get_atoms(sym_slab))
+                # check that slab has the minimum thickness (atomic extent along the surface normal;
+                # the c-vector of pymatgen slabs is not necessarily perpendicular to the surface)
+                if slab_thickness(sym_slab_ase) < minimum_thickness:
                     continue
                 # check if the slab is unique
                 if check_surf_unique(surf_list, sym_slab_ase, position_accuracy) > 0:
@@ -319,14 +313,37 @@ def permute_surface(bulk_ase, miller_plane, minimum_thickness, vacuum):
         
     return surf_list
 
+def standardise_slab(slab):
+    """Bring a slab (e.g. from pymatgen or read from a file) into the orientation used by INTERFACER:
+    surface normal (a x b) along z, so that a and b lie in the xy-plane, and a right-handed cell with a3.z > 0.
+    Only the chemical symbols, positions, cell and pbc are kept (pymatgen adds string arrays such as
+    'bulk_wyckoff' that break the stacking/extxyz output)."""
+    slab = Atoms(symbols=slab.get_chemical_symbols(), positions=slab.get_positions(), cell=slab.get_cell(), pbc=True)
+    slab = rotate_slab(slab)
+    if np.dot(slab.cell[2],np.cross(slab.cell[0],slab.cell[1])) < 0:
+        slab = flip_handedness(slab)
+    return slab
+
+def slab_thickness(slab):
+    """Thickness of a slab (in A), i.e. the extent of the atomic positions along the surface normal (a x b)."""
+    normal = np.cross(slab.cell[0], slab.cell[1])
+    normal = normal/np.linalg.norm(normal)
+    proj = np.dot(slab.positions, normal)
+    return proj.max() - proj.min()
+
+def _rotation_set(rotations):
+    return sorted(tuple(np.asarray(r).flatten()) for r in rotations)
+
 def check_surf_unique(surf_list, surf, position_accuracy):
-    """Checks all surfaces in a given directory are unique.
+    """Checks whether a surface is already present in a list of surfaces.
+    Two surfaces are considered equivalent if they have the same chemical formula
+    and the same set of symmetry rotations (as determined by spglib).
     Args:
-        surf_list (list): List of existing summetric surfaces to compare to.
+        surf_list (list): List of existing symmetric surfaces to compare to.
         surf (ase.Atoms): The surface to check for uniqueness.
-        position_accuracy (int): The accuracy for the get_symmetry spglib function.
+        position_accuracy (int): The accuracy for the get_symmetry spglib function (symprec=10^-position_accuracy).
     Returns:
-        int: 1 if the surface is unique, 0 if it is not."""
+        int: 1 if an equivalent surface is already in surf_list (i.e. a duplicate), 0 if it is unique."""
     
     symprec=1*10**-(position_accuracy)
     if len(surf_list) == 0:
@@ -338,7 +355,7 @@ def check_surf_unique(surf_list, surf, position_accuracy):
             new_surf_sym = get_symmetry((surf.cell, surf.get_scaled_positions(), surf.get_atomic_numbers()), symprec=symprec)
             old_surf_sym = get_symmetry((surf_list[i].cell, surf_list[i].get_scaled_positions(), surf_list[i].get_atomic_numbers()), 
                                         symprec=symprec)
-            if old_surf_sym["rotations"].all() == new_surf_sym["rotations"].all():
+            if _rotation_set(old_surf_sym["rotations"]) == _rotation_set(new_surf_sym["rotations"]):
                 return 1
             else:
                 continue
@@ -349,7 +366,7 @@ def check_surf_unique(surf_list, surf, position_accuracy):
 def make_slab(miller, atoms,repeat=(1,1,1),square=False):
     #construct slab
     d,e,f,origin = get_cut_vectors(miller, atoms.cell)
-    atoms = wrap_coords(atoms)
+    atoms = wrap_coords(atoms.copy()) #do not modify the input structure
     #slab = ase.build.cut(atoms, d, e, f, origo=origin)
     slab = cut_cell(atoms, d, e, f, origin=origin)
     slab = slab.repeat(repeat)
@@ -431,7 +448,7 @@ def reasnoble_slab_angles(Lmax=10,slab=None):
             if abs(vn) <= lentol:
                 continue
             ctheta = np.dot(v,ahat)/vn
-            theta = np.arccos(ctheta)
+            theta = np.arccos(np.clip(ctheta,-1.0,1.0))
             tested = False
             for i,y in enumerate(vecs):
                 if (y[2]-angtol <= theta <= y[2] +angtol) or (y[2]-angtol <= np.pi - theta <= y[2]+angtol):
@@ -500,7 +517,7 @@ def reasnoble_slab_angles(Lmax=10,slab=None):
             if ctheta > 1-0.001 or ctheta < -1 + 0.001:
                 continue
                 
-            Area = np.linalg.norm(np.cross(v1,v2))
+            Area = abs(v1[0]*v2[1]-v1[1]*v2[0]) #2D cross product (np.cross of 2D vectors is removed in numpy 2)
             theta = np.arccos(ctheta)
             
             #add so that the slab is acute and right-handed
@@ -616,16 +633,10 @@ def plot_slab_axes(slab1,slab2):
 
 def cut_cell(atoms,a1,a2,a3,origin=(0,0,0)):
     tol = 10**-7
-    sp = atoms.get_scaled_positions()
-
-    for i,x in enumerate(sp):
-        for j,y in enumerate(x):
-            y %= 1
-            if y >= 1 - tol:
-                sp[i][j] = tol
-            elif y <= tol:
-                sp[i][j] = tol
-            
+    atoms = atoms.copy() #do not modify the input structure
+    sp = atoms.get_scaled_positions(wrap=False)
+    sp %= 1.0 #wrap into [0,1) (previously only a local copy was wrapped)
+    sp[(sp >= 1 - tol) | (sp <= tol)] = tol
     atoms.set_scaled_positions(sp)
     atoms2 = ase.build.cut(atoms,a1,a2,a3,origo=origin,tolerance=10**-3*tol)
     
@@ -644,11 +655,12 @@ def RH(slab):
     #swaps a1 and a2 to make the slab right handed
     a = [line for line in slab.cell]
     fp = slab.get_scaled_positions()
-    fp2 = [[u[1],u[0],u[2]] for u in fp]
     if np.dot(a[2],np.cross(a[0],a[1])) < 0:
+        #only swap the scaled positions when the cell vectors are swapped
         t = a[0];    a[0]= a[1];    a[1] = t;
+        fp = [[u[1],u[0],u[2]] for u in fp]
     slab.cell = a
-    slab.set_scaled_positions(fp2)
+    slab.set_scaled_positions(fp)
     return slab
 
 def invert_axis(slab,axis):
@@ -698,8 +710,7 @@ def find_commensurate_supercell(slab1,slab2,L,Lmax,Lstep,ptol):
     #loop over Ls increasing util finding a commensurate supercell
     success = False
     #L = Lstep
-    print('burda Lmax=',Lmax)
-    print('burda ptol=',ptol)
+    choice = None
 
     while L <= Lmax and success == False:
         print ("trying with L = %.2f A"%L)
@@ -711,31 +722,26 @@ def find_commensurate_supercell(slab1,slab2,L,Lmax,Lstep,ptol):
             try:
                 choice =  match_angles2(slab1.cell, angles1, slab2.cell, angles2, ptol=ptol, Lmax=L)
                 success = True
-            except:
+            except IndexError: #no matching cell pairs found for this L (empty list of matches)
                 pass    
         if success == False:
             L += Lstep
     if success == False:
-        print ("not possible within these tolerances")
-        exit()                
+        raise RuntimeError("No commensurate supercell found with L <= %.2f A and %.1f%% tolerance. "
+                           "Try increasing -msd (max slab dimension) or -pt (percentage tolerance)."%(Lmax,ptol))
     return choice
 
 def slab_aligner(slab1,slab2,L,Lmax,Lstep,ptol,thickness,atoms1,atoms2):
         #find and repeat slabs as specified,
         #One should use only 1 layer for a layer convergence test.
-        print('surda lmax',Lmax, L)
+        #NOTE: 'thickness' is currently not used here; the slab thickness is set by the number of
+        #repetitions in c (-cr1/-cr2) when the slabs are created (or by -th for symmetric slabs).
+        #The input slabs are not modified.
 
+        slab1_in=slab1; slab2_in=slab2
         choice = find_commensurate_supercell(slab1,slab2,L,Lmax,Lstep,ptol)
-        crep = np.ceil(abs(thickness/np.dot(slab1.cell[2],(0,0,1)))) #This does not work properly, doesn't give the thickness desired by the user!!
-        #crep=1
-        #crep=  np.ceil((args.thickness/get_thickness(slab1)))
-        #slab1 = cut_cell(slab1,choice[2],choice[3],(0,0,crep))
         slab1 = cut_cell(slab1,choice[2],choice[3],(0,0,1))
         slab1 = square_slab(slab1)
-        crep = np.ceil(abs(thickness/np.dot(slab2.cell[2],(0,0,1))))
-        #crep=1
-        #crep=  np.ceil((args.thickness/get_thickness(slab2)))
-        #slab2 = cut_cell(slab2,choice[4],choice[5],(0,0,crep))
         slab2 = cut_cell(slab2,choice[4],choice[5],(0,0,1))    
         slab2 = square_slab(slab2)
 
@@ -743,8 +749,9 @@ def slab_aligner(slab1,slab2,L,Lmax,Lstep,ptol,thickness,atoms1,atoms2):
         ase.build.rotate(slab2,slab1.cell[2],slab2.cell[2],slab2.cell[0],slab1.cell[0])
 
         #confirm that atom densities are the same as at the start
-        atom_density_check(atoms1,slab1)
-        atom_density_check(atoms2,slab2)
+        #(compared with the input slabs; the bulk (atoms1/2) cannot be used as reference for slabs with vacuum padding)
+        atom_density_check(slab1_in,slab1)
+        atom_density_check(slab2_in,slab2)
         
         return slab1,slab2
 

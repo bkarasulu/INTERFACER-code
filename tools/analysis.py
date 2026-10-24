@@ -1,6 +1,6 @@
 from __future__ import print_function
 import numpy as np
-import argparse,math, os.path,fractions,time
+import argparse,math, os.path,time
 import matplotlib.pyplot as plt
 import warnings
 
@@ -22,16 +22,12 @@ from ase.build import niggli_reduce, cut
 from ase.geometry import find_mic  #min dist through PBC using the minimum-image covnention
 from ase.constraints import FixAtoms
 
-#Import other functions from the INTERFACER package
-from tools.builder import *
-#from tools.builder import plot_slab_axes
-from tools.external import *
-#from tools.analysis import *
+#NOTE: analysis.py does not depend on tools.builder/tools.external. The previous
+#circular 'from tools.x import *' imports made the available names depend on import order.
 
 
 def get_thickness(atoms): #replace cell[2][2] or vol/surf_area (better)
         zcoords=[at.position[2] for at in atoms]
-        print (max(zcoords)-min(zcoords))
         return max(zcoords)-min(zcoords)
 
 def compute_rdf(dists,cellVol,r_range=None, bin_width=0.005, n_bins=None, norm_by_V=True):
@@ -181,88 +177,55 @@ def find_prim(atoms,tol=1e-4):#using SPGlib find primitive cell of a given atoms
         cell=(atoms.cell, scaled_positions, atoms.numbers)
         #print cell
         print("Space group of the given cell using tolerance=%f: %s"%(tol,get_spacegroup(cell,symprec=tol)))
-        lattice, scaled_positions, numbers = find_primitive(cell, symprec=tol)
+        prim = find_primitive(cell, symprec=tol)
+        if prim is None:
+                print("find_prim: spglib could not find a primitive cell (tol=%g), using the input cell."%tol)
+                return atoms.copy()
+        lattice, scaled_positions, numbers = prim
         #lattice, scaled_positions, numbers = standardize_cell(cell, to_primitive=True, no_idealize=False, symprec=tol)
         atoms2=Atoms(symbols=numbers,cell=lattice,scaled_positions=scaled_positions,pbc=True)
         return atoms2
 
 
-#Done in the main method and currently not called; probably not needed to put it in a separate function.
-def get_interface_energy(slab1,slab2,Ebulk1,Ebulk2,dist=1.0,convLayers=False): #Input is slab1,slab2 as Atoms object with a calculator property assigned.
-        if not slab2.has(calc):
-                calc=slab1.get_calculator()
-                slab2.set_calculator(calc)
-        
-        if convLayers: #A layer convergence test is done here!.
-                print("Layer convergence test is switched on.")
-                #slab1.set_calculator(calc)
-                slab1=call_castep(slab1,typ="SP",dipolCorr='SC',name='slab1',ENCUT=ecut,KPgrid='1 1 1',PP=pp) #Use SP for efficiecy.
-                calc=slab1.get_calculator()       
-                print("Working on slab 1.")
-                nl1,Eslab1,slab1=conv_layers(slab1)#,ifPrim=1)  #Vacuum layer is added automatically within the function.
-                fu1=get_fu(slab1)
-                
-                #slab2=call_castep(slab2,typ="SP",dipolCorr='SC',name='slab2',ENCUT=ecut,KPgrid='1 1 1',PP=pp)
-                
-                slab2.set_calculator(calc)
-                slab2.calc._label="slab2"    #change name for slab2
-                print("Working on slab 2.")                
-                nl2,Eslab2,slab2=conv_layers(slab2)#,ifPrim=1)
+def get_interface_energy(slab1,slab2,Ebulk1,Ebulk2,dist=1.0,convLayers=False,vac_slab=6.0,vac_int=1.0,calc=None):
+        """Single-point surface and adhesion energies for two (already aligned) slabs.
 
-                fu2=get_fu(slab2)
-                print(nl1,nl2,Eslab1,Eslab2,fu1,fu2)
+        Not used by the main workflow (which does the same step by step), kept for scripting.
+        Args:
+            slab1, slab2 (ase.Atoms): aligned slabs. A calculator is taken from `calc`, or else from slab1 (or slab2).
+            Ebulk1, Ebulk2 (float): bulk energies per atom (eV/atom).
+            dist (float): separation between the slabs in the interface (A).
+            convLayers (bool): not supported any more (use conv_layers in the main script).
+            vac_slab, vac_int (float): vacuum padding (A, on each side) for the slabs and the interface.
+        Returns:
+            Eslab1, Eslab2 (eV), Ws1, Ws2 (eV/nm^2), interface (ase.Atoms with W_ad in interface.info['W_ad'], eV/nm^2)
+        """
+        if convLayers:
+                raise NotImplementedError("get_interface_energy: layer convergence is done by conv_layers() in interfacer-new.py")
+        if calc is None: calc = slab1.calc if slab1.calc is not None else slab2.calc
+        if calc is None: raise ValueError("get_interface_energy: no calculator given or attached to the slabs.")
 
-        else:
-                slab1_vac=slab1.copy();slab2_vac=slab2.copy();
-                slab1_vac.center(vacuum=args.vac_slab, axis=2)
-                slab2_vac.center(vacuum=args.vac_slab, axis=2)
-                atoms=call_castep(slab1_vac,typ="SP",dipolCorr='SC',name='slab1',ENCUT=ecut,KPgrid='1 1 1',PP=pp)
-                atoms=slab1_vac
-                atoms.set_calculator(calc)
-                Eslab1=atoms.get_potential_energy()
-                fu1=get_fu(atoms)
-                
-                atoms=call_castep(slab2_vac,typ="SP",dipolCorr='SC',name='slab2',ENCUT=ecut,KPgrid='1 1 1',PP=pp)
-                atoms=slab2_vac
-                atoms.set_calculator(calc)
-                atoms.calc._label="slab2"
-                Eslab2=atoms.get_potential_energy()
-                fu2=get_fu(atoms)
+        energies=[]
+        for slab in (slab1,slab2):
+                s=slab.copy(); s.center(vacuum=vac_slab, axis=2); s.calc=calc
+                energies.append(s.get_potential_energy())
+        Eslab1,Eslab2=energies
 
-        #ase.io.write("slab1.cell",slab1.repeat((1,1,1)),format='castep-cell')
-        #ase.io.write("slab2.cell",slab2.repeat((1,1,1)),format='castep-cell')
+        Ws1=(Eslab1-len(slab1)*Ebulk1)/2/surf_area(slab1)/0.01 #A2 to nm2
+        Ws2=(Eslab2-len(slab2)*Ebulk2)/2/surf_area(slab2)/0.01 #A2 to nm2
 
-        Ws1=(Eslab1-fu1*Ebulk1)/2/surf_area(slab1)/0.01 #A2 to nm2
-        Ws2=(Eslab2-fu2*Ebulk2)/2/surf_area(slab2)/0.01 #A2 to nm2
-        
-        print(('%s: %s eV' % ('Ebulk 1', Ebulk1)))
-        print(('%s: %s eV' % ('Ebulk 2', Ebulk2)))
-        print(('%s: %s eV' % ('Eslab 1', Eslab1)))
-        print(('%s: %s eV' % ('Eslab 2', Eslab2)))
-        print(('%s: %.2f eV/nm^2' % ('Wsurf 1', Ws1)))
-        print(('%s: %.2f eV/nm^2' % ('Wsurf 2', Ws2)))
+        s1=slab1.copy(); s2=slab2.copy()
+        s1.center(vacuum=0, axis=2); s2.center(vacuum=0, axis=2)
+        int1=ase.build.stack(s1, s2, axis=2, maxstrain=None, distance=dist,cell=None,reorder=True)
+        int1.center(vacuum=vac_int,axis=2)
+        int1.calc=calc
+        Eint=int1.get_potential_energy()
 
-        #exit()
-        
-        #Interface before alignment.
-        print("Creating the interface with given slabs.")
-        int1=ase.build.stack(slab1, slab2, axis=2, maxstrain=None, distance=dist,cell=None,reorder=True)
-        int1.center(vacuum=args.vac_int,axis=2)
-        if args.view:view(int1)
-        ase.io.write("interface1.cell",int1.repeat((1,1,1)),format='castep-cell')
-        atoms=call_castep(slab1_vac,typ="SP",dipolCorr='SC',name='int1',ENCUT=ecut,KPgrid='1 1 1',PP=pp) #TODO: use general ENCUT setting
-        #TODO: add call_VASP
-        #atoms=int1
-        #atoms.set_calculator(calc)
-        Eint=atoms.get_potential_energy()
-
-        #Wad=(Ws1+Ws2-Eint)/surf_area(int1)/0.01 #A2 to nm2 #check the formula Ea isntead of Wsurf?? This is wrong
-        #print('Wad before alingment: %.2f eV/nm^2'%Wad)
-
-        Wad=(Eslab1+Eslab2-Eint)/surf_area(int1)/0.01 #A2 to nm2 #check the formula Ea isntead of Wsurf??
-        
-        print(('W_ad before alingment: %.2f eV/nm^2\n'%Wad))
-        return Eslab1,Eslab2,Ws1,Ws2,int1#surf_area(int1)
+        #Work of adhesion (positive for a bound interface).
+        Wad=(Eslab1+Eslab2-Eint)/surf_area(int1)/0.01 #A2 to nm2
+        int1.info['W_ad']=Wad
+        print('Wsurf 1: %.2f eV/nm^2, Wsurf 2: %.2f eV/nm^2, W_ad: %.2f eV/nm^2'%(Ws1,Ws2,Wad))
+        return Eslab1,Eslab2,Ws1,Ws2,int1
 
 ################# functions to determine surface formation energies of symmetric surfaces ###################################
 
@@ -276,7 +239,7 @@ def calculate_chem_pots(bulk, decomps):
     """
     toa_bulk = sorted(set(bulk.symbols))
     noa_bulk = [bulk.get_chemical_symbols().count(symbol) for symbol in toa_bulk]
-    e_bulk = bulk.get_total_energy() #in eV
+    e_bulk = bulk.get_potential_energy() #in eV (same energy definition as in calculate_SFE)
 
     noa_matrix = np.zeros((len(decomps)+1, len(toa_bulk)))
     noa_matrix[-1] = noa_bulk
@@ -292,9 +255,11 @@ def calculate_chem_pots(bulk, decomps):
                 noa_matrix[i,j] = noa[ix[0]]
             else:
                 noa_matrix[i,j] = 0
-        e = decomp.get_total_energy() #in eV
+        e = decomp.get_potential_energy() #in eV
         energies[i] = e 
 
+    if noa_matrix.shape[0] != noa_matrix.shape[1]:
+        raise ValueError("calculate_chem_pots: need exactly (number of elements - 1) = %d decomposition products, got %d."%(len(toa_bulk)-1, len(decomps)))
     cp = np.linalg.solve(noa_matrix, energies)
     assert (np.allclose(np.dot(noa_matrix, cp), energies)), "Chemical potentials calculation failed."
     chem_pots = {toa_bulk[i]: cp[i] for i in range(len(toa_bulk))}
@@ -320,11 +285,12 @@ def calculate_SFE(slab, bulk, decomps=None, chem_pots=None, ase=False):
     # get the type of atoms and the number of atoms for each type in the bulk and slab structures
     toa_bulk = sorted(set(bulk.symbols))
     toa_slab = sorted(set(slab.symbols))
-    assert toa_bulk == toa_slab or "The bulk and slab structures do not contain the same elements."
+    if toa_bulk != toa_slab:
+        raise ValueError("The bulk (%s) and slab (%s) structures do not contain the same elements."%(toa_bulk, toa_slab))
     noa_bulk = [bulk.get_chemical_symbols().count(symbol) for symbol in toa_bulk]
     noa_slab = [slab.get_chemical_symbols().count(symbol) for symbol in toa_slab]
-    assert [no_el%np.min(noa_bulk) == 0 for no_el in noa_bulk], "The number of atoms in the bulk structure is not a multiple of the formula unit."
     # calculate the number of formula units in the bulk structure
+    # (the 'formula unit' here is normalised to the least abundant element, e.g. Al4O6 -> 4 x AlO1.5)
     noa_bulk_fu = noa_bulk/np.min(noa_bulk)
     no_fu_bulk = np.min(noa_bulk)/np.min(noa_bulk_fu)
     
@@ -332,14 +298,16 @@ def calculate_SFE(slab, bulk, decomps=None, chem_pots=None, ase=False):
     fu_all = np.array(noa_slab)/np.array(noa_bulk/no_fu_bulk)
 
     # if all formula units in the slab are the same, then the slab is stoichiometric 
-    if np.all(fu_all == fu_all[0]):
-        no_fu_bis = int(fu_all[0])          
+    if np.allclose(fu_all, fu_all[0]):
+        no_fu_bis = fu_all[0]          
         # calculate the surface formation energy
         SFE = 1/(2*A) * (E_slab - ((E_bulk/no_fu_bulk)*no_fu_bis))
     # if the slab is not stoichiometric, then we need to calculate the difference number and the chemical potentials
     else:
-        int_list = fu_all[(fu_all % 1 == 0)]
-        no_fu_bis = np.max(int_list)        # number of formula units of bulk in the slab
+        is_int = np.isclose(fu_all, np.round(fu_all))
+        # number of formula units of bulk in the slab (reference); the SFE does not depend on this
+        # choice when the chemical potentials are consistent with the bulk energy.
+        no_fu_bis = np.round(np.max(fu_all[is_int])) if np.any(is_int) else np.min(fu_all)
         # calculate the difference in the number of atoms of each type between the slab and the bulk
         diff = {}
         for i, symbol in enumerate(toa_bulk):
@@ -360,7 +328,7 @@ def calculate_SFE(slab, bulk, decomps=None, chem_pots=None, ase=False):
             warnings.warn("At least one slab is not stoichiometric; either chem_pots or decomps needs to be provided to calculate the surface formation energy." +
                           "Using zero chemical potentials for all elements in the slab structure. This may lead to incorrect results.", UserWarning)
         else:
-            raise ValueError(f"Slab {slab.name} is not stroichiometric; either chem_pots or decomps needs to be provided to calculate the surface formation energy.")
+            raise ValueError(f"Slab {getattr(slab, 'name', slab.get_chemical_formula())} is not stoichiometric; either chem_pots or decomps needs to be provided to calculate the surface formation energy.")
         # calculate the surface formation energy of a non-stoichiometric slab
         SFE = 1/(2*A) * (E_slab - ((E_bulk/no_fu_bulk)*no_fu_bis) - (sum([diff[el]*chem_pots[el] for el in toa_bulk])))
     
