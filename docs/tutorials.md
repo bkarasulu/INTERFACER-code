@@ -20,9 +20,9 @@ cd Tutorials/01_Cu-Ni_EMT && ./run.sh
 |---|---|
 | Surface energies of Cu (100) / (110) / (111) | 1.13 / 1.23 / 1.04 J/m² |
 | Selected surfaces | (111) for both metals |
-| Separation from the rigid scan | 2.50 Å |
-| Lateral shift | (0.75, 0) |
-| Work of adhesion | 2.64 J/m² (≤ γ(Cu) + γ(Ni) = 2.74 J/m²) |
+| Lateral shift (scanned first) | (0.25, 0.50) |
+| Separation at that registry | 2.00 Å |
+| Work of adhesion | 2.63 J/m² (≤ γ(Cu) + γ(Ni) = 2.74 J/m²) |
 
 ## Tutorial 2: Na3OCl | Na with MACE-MP-0
 

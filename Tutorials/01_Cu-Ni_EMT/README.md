@@ -12,8 +12,8 @@ This tutorial runs the complete workflow, with all screening and convergence tes
 2. Surface screening (`tsur`): (100), (110) and (111) slabs of 3 cubic cells. (111) has the lowest surface energy for both metals and is selected.
 3. Finds a common supercell. The hexagonal (111) cells match within 4 % (misfit 2.9 % with the relaxed lattices).
 4. Optimises the aligned slabs, giving W_surf.
-5. Separation scan (`tsep`) from 1.5 to 3.0 Å with rigid slabs, then a lateral scan (`thor`) on a 4×4 grid of shifts.
-6. Optimises the interface and reports the work of adhesion.
+5. Lateral scan (`thor`) on a 4×4 grid of shifts with rigid slabs, then a separation scan (`tsep`) from 1.5 to 3.0 Å at the best registry.
+6. Optimises the interface at fixed cell, keeping the scanned separation, and reports the work of adhesion.
 
 ## Expected results
 
@@ -25,16 +25,18 @@ W_surf  (Cu_111): 6.52 eV/nm^2 = 1.04 J/m^2
 Selected surfaces: (1, 1, 1) for material 1 and (1, 1, 1) for material 2
 Wsurf_1 (Cu_111): 6.52 eV/nm^2 = 1.04 J/m^2
 Wsurf_2 (Ni_111): 10.64 eV/nm^2 = 1.70 J/m^2
-convSep: Minimum-energy separation is 2.50 A
-Minimum-energy horizontal translation: x= 0.75, y= 0.00
-W_ad (work of adhesion, 2 interface(s) in the cell) for the final optimised interface: 16.46 eV/nm^2 = 2.64 J/m^2
+Minimum-energy horizontal translation: x= 0.25, y= 0.50
+Finding the optimal interface (interlayer) separation at the lateral shift (0.25, 0.50).
+convSep: Minimum-energy separation is 2.00 A
+(fixed cell: the separation from the -tsep/-thor scan is kept)
+W_ad (work of adhesion, 2 interface(s) in the cell) for the final optimised interface: 16.42 eV/nm^2 = 2.63 J/m^2
 ```
 
 The surface energies follow (111) < (100) < (110), as expected for fcc metals.
 
-For a coherent interface, W_ad must not exceed γ(Cu) + γ(Ni) = 2.74 J/m². The 2.64 J/m² obtained implies a low interface energy, γ_int ≈ 0.1 J/m², as expected for two similar fcc metals.
+For a coherent interface, W_ad must not exceed γ(Cu) + γ(Ni) = 2.74 J/m². The 2.63 J/m² obtained implies a low interface energy, γ_int ≈ 0.1 J/m², as expected for two similar fcc metals.
 
-Note that the best separation from the rigid scan (2.5 Å, at the initial registry) is larger than after relaxation. Run the lateral scan *before* trusting a separation, or scan both.
+The order of the scans matters: at the initial (on-top) registry, the rigid separation scan would give 2.5 Å, which is too large. INTERFACER therefore scans the lateral registry first, then the separation at the best registry. The best separation, 2.0 Å, is close to the fcc(111) interlayer spacing.
 
 ## Things to try
 

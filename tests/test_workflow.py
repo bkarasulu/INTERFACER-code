@@ -57,3 +57,19 @@ def test_failed_alignment_is_skipped(tmp_path, emt_engine):
     wf = InterfaceWorkflow(emt_engine, _cfg(tmp_path, miller2=(1, 0, 0), max_slab_dimension=4, percentage_tolerance=0.1))
     res = wf.run(bulk("Cu", "fcc", a=3.61, cubic=True), bulk("Ni", "fcc", a=3.52, cubic=True))
     assert res.interfaces == []
+
+
+def test_interface_cell_fixed_after_separation_scan(tmp_path, emt_engine):
+    # after -tsep the final interface optimisation keeps the cell (and thus the scanned separation)
+    wf = InterfaceWorkflow(emt_engine, _cfg(tmp_path, conv_sep=True, sep_init=1.5, sep_final=2.5, sep_step=0.5))
+    wf.run(bulk("Cu", "fcc", a=3.61, cubic=True), bulk("Ni", "fcc", a=3.52, cubic=True))
+    import ase.io
+    before = ase.io.read(tmp_path / "OUT" / ("int-sep_%.2fA.xyz" % wf.results.interfaces[0].sep))
+    after = ase.io.read(tmp_path / "OUT" / "interface_cuts_0_0_opted.xyz")
+    assert after.cell.lengths()[2] == pytest.approx(before.cell.lengths()[2])
+    # without scans the cell length along z is relaxed (ASE engines)
+    wf2 = InterfaceWorkflow(emt_engine, _cfg(tmp_path / "b", outdir=str(tmp_path / "b" / "OUT"), outfile=str(tmp_path / "b.out")))
+    wf2.run(bulk("Cu", "fcc", a=3.61, cubic=True), bulk("Ni", "fcc", a=3.52, cubic=True))
+    pre = ase.io.read(tmp_path / "b" / "OUT" / "interface-pre_opt_cuts_0_0.xyz")
+    post = ase.io.read(tmp_path / "b" / "OUT" / "interface_cuts_0_0_opted.xyz")
+    assert abs(post.cell.lengths()[2] - pre.cell.lengths()[2]) > 1e-3

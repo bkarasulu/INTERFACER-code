@@ -57,15 +57,18 @@ Both aligned slabs are relaxed at fixed cell. This gives E_slab,1, E_slab,2 and 
 ## 8. Interface (`run_pair`)
 
 - **Stacking:** `make_interface` places slab 2 on slab 1 with a vertical gap of `-sep` Å between the outermost atomic planes and `-vac_int` Å of vacuum on each side. The in-plane cell is the average of the two slab cells.
-- **Separation scan (`-tsep`):** single points for gaps from `-sep_init` to `-sep_final` in steps of `-sep_step`. The vacuum is sep/2, so the periodic images form a second, equivalent interface. The lowest-energy gap is kept.
-- **Lateral scan (`-thor`):** slab 1 is shifted on a 2D grid of fractions of a and b (`-hor_steps`), and the lowest-energy registry is kept.
+- **Lateral scan (`-thor`):** slab 1 is shifted on a 2D grid of fractions of a and b (`-hor_steps`) at the separation `-sep`, and the lowest-energy registry is kept.
+- **Separation scan (`-tsep`):** single points for gaps from `-sep_init` to `-sep_final` in steps of `-sep_step`, at the best registry if `-thor` was also used. The vacuum is sep/2, so the periodic images form a second, equivalent interface. The lowest-energy gap is kept.
+
+The lateral scan runs first because a separation scanned at an unfavourable registry comes out too large.
 
 ## 9. Interface optimisation (`optimise_interface`)
 
 The interface is relaxed and the work of adhesion is computed; see [Theory](theory.md#work-of-adhesion).
 
-- **VASP:** full cell relaxation (ISIF=3).
-- **ASE and ML engines:** atomic positions plus the cell length along z. The matched in-plane cell is kept, and the second, periodic interface can relax.
+- **After `-tsep` or `-thor`:** the cell is kept fixed (VASP ISIF=2), so the scanned separation is kept.
+- **Otherwise, VASP:** full cell relaxation (ISIF=3).
+- **Otherwise, ASE and ML engines:** atomic positions plus the cell length along z. The matched in-plane cell is kept, and the second, periodic interface can relax.
 
 ## Output files
 

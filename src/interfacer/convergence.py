@@ -147,11 +147,21 @@ def conv_layers_new(mil,atoms,vac=2.0,ifPlot=1,ifPrim=False, Etol=1e-2,view=0,la
         if ifPlot: _plot_layers(layers,E,os.path.join(outdir,'conv_layers_%s.png'%name))
         return layers[-1],E[-1]*nAt,slab
 
-def convSep(slab1,slab2,vac=None,sep_init=1.5,sep_final=4.0,sep_step=0.5,view=0,ifPlot=1, Etol=1e-2,engine=None,kpgrid=None,outdir="OUTPUT"):
+def lateral_shift(slab, xy):
+        """Copy of a slab translated laterally by the fractional shift (x, y) of its in-plane cell vectors (wrapped)."""
+        s=slab.copy()
+        s.translate(s.cell.cartesian_positions([xy[0],xy[1],0]))
+        s.wrap(pbc=[True,True,False])
+        return s
+
+def convSep(slab1,slab2,vac=None,sep_init=1.5,sep_final=4.0,sep_step=0.5,view=0,ifPlot=1, Etol=1e-2,engine=None,kpgrid=None,outdir="OUTPUT",shift=None):
         """Scan the separation between two rigid slabs (sep_init ... sep_final, included) with single points.
-        The vacuum padding is vac (default sep/2, i.e. two equivalent interfaces). Returns (lowest-energy interface, separation)."""
+        The vacuum padding is vac (default sep/2, i.e. two equivalent interfaces). shift=(x, y) translates slab1 laterally
+        (fractions of its cell vectors, e.g. the best registry from checkHorizontal) before stacking.
+        Returns (lowest-energy interface, separation)."""
         # TODO: find a way to check whether two slabs are clashing (i.e. <2.0A)
         engine=_engine(engine)
+        if shift is not None and any(abs(v)>1e-12 for v in shift): slab1=lateral_shift(slab1,shift)
         E=[]
         minSep=sep_init; Emin=1e6; minInt=None
         seps=np.arange(sep_init,sep_final+0.5*sep_step,sep_step) #sep_final is included

@@ -344,16 +344,22 @@ class InterfaceWorkflow:
         self.write(slab1, "slab1_cut%s_aligned_opted" % ci); self.write(slab2, "slab2_cut%s_aligned_opted" % cj)
         return slab1, slab2, E1, E2, Ws1, Ws2
 
-    def optimise_interface(self, interface, name, vac_used, E1, E2):
+    def optimise_interface(self, interface, name, vac_used, E1, E2, fix_cell=False):
         """Optimise the interface; return (interface, E_int, W_ad in eV/nm^2, number of interfaces in the cell).
 
         W_ad = (E_slab1 + E_slab2 - E_int) / (n_int * A): with a small vacuum (<= 4 A on each side, e.g. sep/2) the
-        periodic cell contains two interfaces (n_int=2), otherwise one interface and two free surfaces (n_int=1)."""
+        periodic cell contains two interfaces (n_int=2), otherwise one interface and two free surfaces (n_int=1).
+
+        fix_cell: keep the cell fixed (used after the separation/lateral scans, so that the optimised separation is kept);
+        otherwise VASP relaxes the full cell (ISIF=3) and ASE/ML engines the cell length along z."""
         _log("\nOptimizing the final interface geometry.")
         interface.name = name
         dipC = 'SC' if vac_used > 4 else 'None'
         #CHECK: Should we fix the volume or not?? fix vol works for some cases (YIG) but not for some (Al2O3//Si)
-        Eint, interface = self.engine.run(interface, 'geom', name, dipolCorr=dipC, FixVol=0, nosymm=1, KPgrid_=self.cfg.kpgrid)
+        if fix_cell:
+            _log("(fixed cell: the separation from the -tsep/-thor scan is kept)")
+        Eint, interface = self.engine.run(interface, 'geom', name, dipolCorr=dipC, FixCell=fix_cell, FixVol=0, nosymm=1,
+                                          KPgrid_=self.cfg.kpgrid)
         n_int = 2 if vac_used <= 4 else 1
         Wad = (E1 + E2 - Eint) / (n_int * surf_area(interface)) / 0.01  #A2 to nm2
         self.report('W_ad (work of adhesion, %d interface(s) in the cell) for the final optimised interface: %.2f eV/nm^2 = %.2f J/m^2\n'
@@ -393,16 +399,18 @@ class InterfaceWorkflow:
         self.write(interface, "interface-pre_opt_cuts_%s_%s" % (ci, cj))
 
         shift = None
-        if cfg.conv_sep:
-            _log("\n\nFinding the optimal interface (interlayer) separation.")
-            #separation/2 is used as vacuum padding to have a symmetric seperation at all interfaces.
-            interface, sep = convSep(slab1_o, slab2_o, vac=None, sep_init=cfg.sep_init, sep_final=cfg.sep_final, sep_step=cfg.sep_step,
-                                     view=0, ifPlot=1, engine=self.engine, kpgrid=cfg.kpgrid, outdir=cfg.outdir)
-            vac_used = sep / 2
+        # The lateral registry is scanned first (at -sep), then the separation at the best registry: scanning the
+        # separation at an unfavourable registry gives too large a separation.
         if cfg.test_hori:
             _log("\n\nFinding the optimial interface lateral shift.")
             interface, _, shift = checkHorizontal(slab1_o, slab2_o, sep=sep, steps=cfg.hor_steps, ifPlot=1, engine=self.engine,
                                                   kpgrid=cfg.kpgrid, outdir=cfg.outdir)
+            vac_used = sep / 2
+        if cfg.conv_sep:
+            _log("\n\nFinding the optimal interface (interlayer) separation%s." % (" at the lateral shift (%.2f, %.2f)" % tuple(shift) if shift else ""))
+            #separation/2 is used as vacuum padding to have a symmetric seperation at all interfaces.
+            interface, sep = convSep(slab1_o, slab2_o, vac=None, sep_init=cfg.sep_init, sep_final=cfg.sep_final, sep_step=cfg.sep_step,
+                                     view=0, ifPlot=1, engine=self.engine, kpgrid=cfg.kpgrid, outdir=cfg.outdir, shift=shift)
             vac_used = sep / 2
         if cfg.niggli:
             _log("Niggli reduce the interface...")
@@ -410,7 +418,8 @@ class InterfaceWorkflow:
         self._view(interface)
 
         name = 'interface_cuts_%s_%s' % (ci, cj)
-        interface, Eint, Wad, n_int = self.optimise_interface(interface, name, vac_used, E1, E2)
+        interface, Eint, Wad, n_int = self.optimise_interface(interface, name, vac_used, E1, E2,
+                                                              fix_cell=(cfg.conv_sep or cfg.test_hori))
         self.write(interface, name + "_opted")
         ase.io.write(os.path.join(cfg.outdir, name + "_opted.cif"), interface, format='cif')
         return InterfaceResult(name, slab1.name, slab2.name, float(m0), float(m1), float(E1), float(E2), float(Ws1), float(Ws2),
