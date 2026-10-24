@@ -311,7 +311,7 @@ def calculate_SFE(slab, bulk, decomps=None, chem_pots=None, ase=False):
     Returns:
         float: The surface formation energy in eV/nm^2.
     """
-      
+    
     A = np.linalg.norm(np.cross(slab.cell[0], slab.cell[1]))/100 # surface area in nm^2
 
     E_bulk = bulk.get_potential_energy() # in eV
@@ -362,7 +362,6 @@ def calculate_SFE(slab, bulk, decomps=None, chem_pots=None, ase=False):
         else:
             raise ValueError(f"Slab {slab.name} is not stroichiometric; either chem_pots or decomps needs to be provided to calculate the surface formation energy.")
         # calculate the surface formation energy of a non-stoichiometric slab
-        SFE = 1/(2*A) * (E_slab - ((E_bulk/no_fu_bulk)*no_fu_bis) - (diff['Cl']*chem_pots['Cl']
-            + diff['Li']*chem_pots['Li'] + diff['P']*chem_pots['P'] + diff['S']*chem_pots['S']))
+        SFE = 1/(2*A) * (E_slab - ((E_bulk/no_fu_bulk)*no_fu_bis) - (sum([diff[el]*chem_pots[el] for el in toa_bulk])))
     
     return SFE
