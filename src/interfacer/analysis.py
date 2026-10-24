@@ -8,8 +8,8 @@ import ase.build
 import numpy as np
 from ase import Atoms
 from ase.geometry import find_mic
-from spglib import find_primitive, get_spacegroup
 from .log import debug, say, warn
+from .symmetry import primitive_cell, spacegroup
 
 
 def get_thickness(atoms): #replace cell[2][2] or vol/surf_area (better)
@@ -159,11 +159,8 @@ def get_fu(atoms):
         return fu        
 
 def find_prim(atoms,tol=1e-4):#using SPGlib find primitive cell of a given atoms object.
-        scaled_positions= atoms.get_scaled_positions()#(wrap=True) 
-        cell=(atoms.cell, scaled_positions, atoms.numbers)
-        #print cell
-        debug("Space group of the given cell using tolerance=%f: %s"%(tol,get_spacegroup(cell,symprec=tol)))
-        prim = find_primitive(cell, symprec=tol)
+        debug("Space group of the given cell using tolerance=%f: %s"%(tol,spacegroup(atoms,symprec=tol)))
+        prim = primitive_cell(atoms, symprec=tol)
         if prim is None:
                 warn("find_prim: spglib could not find a primitive cell (tol=%g), using the input cell."%tol)
                 return atoms.copy()

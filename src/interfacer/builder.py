@@ -10,8 +10,8 @@ import numpy as np
 from ase import Atoms
 from pymatgen.core.surface import SlabGenerator
 from pymatgen.io.ase import AseAtomsAdaptor
-from spglib import get_symmetry
 from .log import debug, say, warn
+from .symmetry import symmetry_rotations
 
 #Surface creation and alignment tool by James P. Darby.
 #This is the former join8.py
@@ -338,10 +338,9 @@ def check_surf_unique(surf_list, surf, position_accuracy):
         if surf_list[i].get_chemical_formula(
             mode="metal", empirical=False
         ) == surf.get_chemical_formula(mode="metal", empirical=False):
-            new_surf_sym = get_symmetry((surf.cell, surf.get_scaled_positions(), surf.get_atomic_numbers()), symprec=symprec)
-            old_surf_sym = get_symmetry((surf_list[i].cell, surf_list[i].get_scaled_positions(), surf_list[i].get_atomic_numbers()), 
-                                        symprec=symprec)
-            if _rotation_set(old_surf_sym["rotations"]) == _rotation_set(new_surf_sym["rotations"]):
+            new_rot = symmetry_rotations(surf, symprec=symprec)
+            old_rot = symmetry_rotations(surf_list[i], symprec=symprec)
+            if new_rot is not None and old_rot is not None and _rotation_set(old_rot) == _rotation_set(new_rot):
                 return 1
             else:
                 continue
