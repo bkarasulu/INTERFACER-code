@@ -185,7 +185,7 @@ def convSep(slab1,slab2,vac=None,sep_init=1.5,sep_final=4.0,sep_step=0.5,view=0,
 
         return interface,minSep
 
-def checkHorizontal(slab1,slab2,sep,vac=None,steps=[0.25,0.25],ifPlot=0,engine=None,kpgrid=None,outdir="OUTPUT"):
+def checkHorizontal(slab1,slab2,sep,vac=None,steps=(0.25,0.25),ifPlot=0,engine=None,kpgrid=None,outdir="OUTPUT"):
         """Lateral translation test: translate the bottom slab (slab1) on a 2D grid of fractional shifts (x,y) in [0,1)
         along a and b, keeping both slabs rigid, and compare single-point energies.
         Returns (lowest-energy interface, its energy per atom, [x, y])."""

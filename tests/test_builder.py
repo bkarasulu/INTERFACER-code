@@ -4,7 +4,7 @@ from ase.build import bulk
 
 from interfacer.builder import (check_surf_unique, cut_cell, find_commensurate_supercell, get_cut_vectors,
                            make_slab, permute_surface, RH, slab_aligner, slab_thickness, standardise_slab)
-from interfacer.analysis import misfit, surf_area
+from interfacer.analysis import misfit
 
 
 def test_tools_compat_shims():

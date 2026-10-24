@@ -37,7 +37,7 @@ def bottom_layer_indices(atoms, n_layers, tol=0.3):
 
 
 def relax(atoms, calc, fmax=0.05, steps=200, optimiser="BFGS", relax_cell=False, fix_bottom_layers=0,
-          trajectory=None, logfile="-"):
+          trajectory=None, logfile="-", cell_mask=None):
     """Relax `atoms` in place with an ASE optimiser and return (energy, atoms).
 
     Args:
@@ -47,6 +47,8 @@ def relax(atoms, calc, fmax=0.05, steps=200, optimiser="BFGS", relax_cell=False,
         steps (int): maximum number of optimisation steps.
         optimiser (str): BFGS, FIRE or LBFGS.
         relax_cell (bool): also relax the cell (FrechetCellFilter, e.g. for bulk structures).
+        cell_mask (list): Voigt mask of the cell degrees of freedom to relax (xx, yy, zz, yz, xz, xy), e.g.
+            [0, 0, 1, 0, 0, 0] to relax only the length along z; implies relax_cell. Default: all.
         fix_bottom_layers (int): number of bottom atomic layers to keep fixed (for slabs).
         trajectory (str): optional trajectory file name.
     """
@@ -56,9 +58,9 @@ def relax(atoms, calc, fmax=0.05, steps=200, optimiser="BFGS", relax_cell=False,
         atoms.set_constraint(constraints_before + [FixAtoms(indices=bottom_layer_indices(atoms, fix_bottom_layers))])
 
     target = atoms
-    if relax_cell:
+    if relax_cell or cell_mask is not None:
         from ase.filters import FrechetCellFilter
-        target = FrechetCellFilter(atoms)
+        target = FrechetCellFilter(atoms, mask=cell_mask)
 
     if trajectory:
         d = os.path.dirname(trajectory)

@@ -1,0 +1,23 @@
+# Tutorial 3: symmetric (non-stoichiometric) Na3OCl(100) slabs, their surface formation energies in the Na-rich limit,
+# and interfaces of the two terminations with Na(100). MACE-MP-0 small, ~1.5 min on a CPU.
+[structures]
+infile1 = "na3ocl.cif"
+miller1 = [1, 0, 0]
+sym_slabs1 = true                 # all symmetric terminations (pymatgen SlabGenerator)
+thickness = 8.0                   # minimum thickness of the symmetric slabs (A)
+no_slabs = 2                      # build interfaces with both terminations
+decomps1 = ["Na_Im-3m_mp-127.res", "NaCl.cif"]   # Na metal + NaCl: Na-rich chemical potentials
+infile2 = "Na_Im-3m_mp-127.res"
+miller2 = [1, 0, 0]
+cr2 = 6
+initLength = 8
+
+[interface]
+vac_int = 2.0
+sep = 3.0
+
+[calculation]
+prog = "mlip"
+mlip = "mace"
+mlip_model = "small"
+ase_gsteps = 300

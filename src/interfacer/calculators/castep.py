@@ -9,8 +9,9 @@ import ase.io
 import ase.calculators.castep
 from ase import Atoms
 
-def call_castep(atoms,calc=None, typ="sp",PP='',wDir='./CASTEP-tmp',name='try',param='opt.param',resDir="",dipolCorr=False,dipolDir='z',KPgrid="1 1 1",KPspacing="", ifPrint=False,ifDryRun=False,ENCUT=0,ifManualRun=True,FixCell=False,FixList=[],hubU={},slowConv=0):
+def call_castep(atoms,calc=None, typ="sp",PP='',wDir='./CASTEP-tmp',name='try',param='opt.param',resDir="",dipolCorr=False,dipolDir='z',KPgrid="1 1 1",KPspacing="", ifPrint=False,ifDryRun=False,ENCUT=0,ifManualRun=True,FixCell=False,FixList=None,hubU=None,slowConv=0):
     #For applying constraints (FixList) atom numbering starts from 1.
+    FixList=FixList or []; hubU=hubU or {}
 
         
     #exe="mpirun -n 4 castep";PP_path='/rscratch/bk393/pspots/CASTEP'

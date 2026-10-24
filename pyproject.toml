@@ -46,3 +46,18 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 140
+extend-exclude = ["Tutorials/*/BKP", "site"]
+
+[tool.ruff.lint]
+# pyflakes-level checks (undefined names, unused imports/variables, syntax) plus a few error-prone patterns;
+# the legacy modules keep their original formatting
+select = ["F", "E9", "B006", "B008"]
+ignore = ["F403", "F405", "F841", "E741"]
+
+[tool.ruff.lint.per-file-ignores]
+"tools/*.py" = ["F401"]
+"src/interfacer/external.py" = ["F401"]
+"src/interfacer/__init__.py" = ["F401"]

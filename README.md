@@ -17,7 +17,7 @@ It runs the following workflow:
 git clone https://github.com/bkarasulu/INTERFACER-code.git
 cd INTERFACER-code
 pip install -e ".[test]"      # installs the `interfacer` command and the Python package
-python -m pytest              # optional: run the test suite (~10 s, no DFT code needed)
+python -m pytest              # optional: run the test suite (~30 s, no DFT code needed)
 ```
 
 Machine-learning potentials are optional extras. Install the ones you need, e.g. `pip install -e ".[mace]"`. The available extras are `mace`, `chgnet`, `matgl`, `sevennet`, `orb`, `fairchem`, `nequip` and `allegro`.
@@ -42,12 +42,26 @@ interfacer -i1 Cu.cif -i2 Ni.cif -m1 1 1 1 -m2 1 1 1 -prog vasp -kp_gr "4 4 1" -
 
 `python interfacer-new.py ...` accepts the same options as `interfacer`. Run `interfacer -h` for all options.
 
+Options can also go in an input file: `interfacer --input run.toml` (TOML, YAML or JSON). Command-line options override the file, and `--save_input` writes the options of a run to a file.
+
 Results are written to `interfaces.out` and `OUTPUT/`. The previous `OUTPUT/` is kept as `OUTPUT_prev/`.
+
+## Tutorials
+
+The tutorials in [`Tutorials/`](Tutorials/README.md) are:
+
+1. Cu|Ni with EMT (seconds).
+2. Na3OCl|Na with MACE (~1 min).
+3. Symmetric slabs and surface formation energies.
+4. β-Li3PS4|Li with VASP.
+5. The Python API (script and notebook).
 
 ## Documentation
 
+The full documentation is built with `pip install -e ".[docs]" && mkdocs serve`. It covers installation, the workflow and output files, the theory, a command-line reference, input files, DFT codes, ML potentials, and the Python API. The source pages are in `docs/`:
+
+- `docs/index.md`, `docs/quickstart.md`, `docs/workflow.md`, `docs/theory.md`, `docs/cli.md`, `docs/input_files.md`, `docs/dft_codes.md`, `docs/python_api.md`.
 - `docs/ROADMAP.md`: code overview and the refactoring roadmap.
 - `docs/mlip.md`: machine-learning potentials (MACE, CHGNet, MatGL, SevenNet, ORB, fairchem/UMA, NequIP/Allegro, custom).
 - `docs/package_layout.md`: package layout, Python API and migration from the old scripts.
 - `docs/known_issues.md`: fixed bugs and open issues.
-- `Tutorials/`: example inputs (β-Li3PS4|Li and Na3OCl|Na with VASP).

@@ -3,7 +3,6 @@ import os
 import subprocess
 import sys
 
-import numpy as np
 import pytest
 from ase.build import bulk
 
