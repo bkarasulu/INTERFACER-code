@@ -27,6 +27,7 @@ WAVEDER
 /ASE-tmp/
 /VASP-tmp/
 /CASTEP-tmp/
+/ASE-calcs/
 
 # documentation build
 /site/

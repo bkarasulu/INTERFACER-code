@@ -121,6 +121,8 @@ Every option except `--input`, `--save_input`, `--help` and `--version` can also
 | `--device` | `auto` | Device for the machine-learning potential: cpu, cuda, mps or auto. Def: auto (GPU if available) |
 | `--mlip_kwargs` |  | Extra keyword arguments for the ML potential calculator as a Python dict, e.g. "{'default_dtype': 'float32'}" or "{'task_name': 'omat'}". Def: none |
 | `--fix_layers` |  | Keep the lowest N atomic layers of the slabs fixed in the slab optimisations (bulk-like region). Def: 0 |
+| `--restart` |  | Reuse finished calculations, also of the convergence tests (VASP/CASTEP: default; ASE/MLIP: results are kept in ASE-calcs/ and reused if the input structure and settings are unchanged). |
+| `--overwrite` |  | Redo all calculations; existing VASP run directories and CASTEP outputs are moved to *_old<n> (not deleted). |
 | `--outdir` | `OUTPUT` | Directory for the output structures (the previous one is kept as <outdir>_prev). Def: OUTPUT |
 | `--version` | `==SUPPRESS==` | show program's version number and exit |
 

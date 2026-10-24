@@ -1,9 +1,13 @@
 """Engine implementations: VASP, CASTEP and ASE calculators (classical potentials; ML potentials plug in here too)."""
+import glob
+import hashlib
+import json
 import os
 
+import numpy as np
 from ase.constraints import FixAtoms
 
-from .base import CalcSettings, Engine
+from .base import CalcSettings, Engine, backup_path
 from .castep import call_castep
 from .classical import classical_calculator
 from .mlip import lazy_calculator_factory
@@ -24,6 +28,9 @@ class VaspEngine(Engine):
         s = self.settings
         from ..builder import prepare_cell_for_vasp
         atoms = prepare_cell_for_vasp(atoms)  # right-handed cell, no negative z coordinates
+        if (s.overwrite or s.restart is False) and os.path.isdir(name):
+            # call_vasp reuses/continues an existing run in its directory; to start afresh, move the old run aside
+            say("Existing run in %s moved to %s (--overwrite)" % (name, backup_path(name)))
         if fix_bottom_layers:  # written as selective dynamics in the POSCAR
             atoms.set_constraint(FixAtoms(indices=bottom_layer_indices(atoms, fix_bottom_layers)))
         return call_vasp(atoms, typ=typ, dipolCorr=dipolCorr, name=name, ENCUT=s.encut, KPgrid=KPgrid_, KPspacing=s.kpspacing,
@@ -41,10 +48,43 @@ class CastepEngine(Engine):
     def run(self, atoms, typ, name, dipolCorr="None", FixCell=False, FixVol=0, passivate=None, nosymm=0, vac=0.0,
             KPgrid_=None, ase_opt=None, relax_cell=False, fix_bottom_layers=0):
         s = self.settings
+        seed = os.path.join(self.tmpdir, name)
+        if os.path.exists(seed + ".castep"):
+            if s.overwrite or s.restart is False:
+                bak = backup_path(seed + ".castep")
+                for f in glob.glob(seed + ".*"):
+                    os.rename(f, f + "_" + os.path.basename(bak).rsplit("_", 1)[-1])
+                say("Existing CASTEP output %s.castep moved aside (--overwrite)" % seed)
+            else:
+                x = read_finished_castep(seed, typ, atoms)
+                if x is not None:
+                    say("Finished CASTEP run %s.castep found, reading the results (use --overwrite to redo it)" % seed)
+                    return x
         kpkw = {"KPgrid": KPgrid_} if KPgrid_ else {"KPspacing": s.kpspacing}
         fixlist = bottom_layer_indices(atoms, fix_bottom_layers) if fix_bottom_layers else []
         return call_castep(atoms, typ=typ, dipolCorr=dipolCorr, name=name, ENCUT=s.encut, PP=s.castep_pp, hubU=s.hubU,
                            FixCell=FixCell, FixList=fixlist, ifDryRun=s.dry, **kpkw)
+
+
+def read_finished_castep(seed, typ, atoms):
+    """Results of a finished CASTEP run (<seed>.castep containing 'Total time'), in the format of call_castep, or None."""
+    from .castep import parseCASTEP
+    try:
+        with open(seed + ".castep") as f:
+            text = f.read()
+    except OSError:
+        return None
+    if "Total time" not in text:
+        return None  # unfinished or crashed run: run again
+    x = None
+    if typ.lower() == "geom" and os.path.exists(seed + ".geom"):
+        try:
+            x = parseCASTEP(seed + ".geom", atoms=atoms.copy())
+        except Exception:
+            x = None
+    if x is None:
+        x = parseCASTEP(seed + ".castep", atoms=atoms.copy())
+    return x
 
 
 class AseEngine(Engine):
@@ -75,6 +115,22 @@ class AseEngine(Engine):
             raise ValueError("typ must be 'sp' or 'geom', got '%s'" % typ)
         s = self.settings
         opt = (typ.lower() == "geom") if ase_opt is None else ase_opt
+        cell = bool(opt and relax_cell and s.relax_cell_bulk)
+        # Without FixCell (i.e. interfaces; slabs use FixCell=True and bulks relax_cell=True), the cell length along z
+        # is relaxed as well, keeping the matched in-plane cell: in a periodic interface cell this lets the second
+        # interface (across the periodic boundary) relax (VASP relaxes the whole cell, ISIF=3).
+        mask = [0, 0, 1, 0, 0, 0] if (opt and not FixCell and not relax_cell) else None
+
+        key = self._fingerprint(atoms, opt, cell, mask, fix_bottom_layers)
+        cache = os.path.join(s.cache_dir, name.replace(os.sep, "__") + ".xyz") if s.restart else None
+        if cache and not s.overwrite:
+            hit = self._load_cache(cache, key)
+            if hit is not None:
+                say("Reusing the finished calculation %s (--restart)" % cache)
+                if getattr(atoms, "name", None):
+                    hit.name = atoms.name
+                return hit.get_potential_energy(), hit
+
         calc = self.get_calculator()
         formula = atoms.get_chemical_formula(empirical=1)
         if not opt:
@@ -82,18 +138,43 @@ class AseEngine(Engine):
             atoms.calc = calc
             E = atoms.get_potential_energy()
         else:
-            cell = bool(relax_cell and s.relax_cell_bulk)
-            # Without FixCell (i.e. interfaces; slabs use FixCell=True and bulks relax_cell=True), the cell length along z
-            # is relaxed as well, keeping the matched in-plane cell: in a periodic interface cell this lets the second
-            # interface (across the periodic boundary) relax (VASP relaxes the whole cell, ISIF=3).
-            mask = [0, 0, 1, 0, 0, 0] if (not FixCell and not relax_cell) else None
             note = " (with cell relaxation)" if cell else (" (with relaxation of the cell along z)" if mask else "")
             say("Optimising the %s structure using ASE/%s%s" % (formula, self.label, note))
             traj = os.path.join(s.outdir, "%s_opt.traj" % os.path.basename(getattr(atoms, "name", name) or name)) if s.outdir else None
             E, atoms = relax(atoms, calc, fmax=s.fmax, steps=s.steps, optimiser=s.optimiser, relax_cell=cell,
                              fix_bottom_layers=fix_bottom_layers, trajectory=traj, cell_mask=mask)
         _freeze_results(atoms, calc)
+        if cache:
+            self._save_cache(cache, key, atoms)
         return E, atoms
+
+    def _fingerprint(self, atoms, opt, cell, mask, fix_bottom_layers):
+        #Identifies a calculation: input structure, potential and optimiser settings.
+        s = self.settings
+        data = {"label": self.label, "opt": bool(opt), "cell": cell, "mask": mask, "fix": int(fix_bottom_layers or 0),
+                "fmax": s.fmax, "steps": s.steps, "optimiser": s.optimiser, "numbers": atoms.numbers.tolist(),
+                "pos": np.round(atoms.positions, 4).tolist(), "lattice": np.round(atoms.cell[:], 4).tolist()}
+        return hashlib.sha1(json.dumps(data, sort_keys=True).encode()).hexdigest()
+
+    @staticmethod
+    def _load_cache(path, key):
+        import ase.io
+        if not os.path.exists(path):
+            return None
+        try:
+            a = ase.io.read(path)
+        except Exception:
+            return None
+        return a if a.info.get("interfacer_fingerprint") == key and a.calc is not None else None
+
+    @staticmethod
+    def _save_cache(path, key, atoms):
+        import ase.io
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        a = atoms.copy()
+        a.calc = atoms.calc
+        a.info["interfacer_fingerprint"] = key
+        ase.io.write(path, a, format="extxyz")
 
 
 def _freeze_results(atoms, calc):

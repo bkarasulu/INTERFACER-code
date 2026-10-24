@@ -149,6 +149,9 @@ def build_parser():
     parser.add_argument("--device", default="auto", type=str, help="Device for the machine-learning potential: cpu, cuda, mps or auto. Def: auto (GPU if available)")
     parser.add_argument("--mlip_kwargs", default=None, type=str, help="Extra keyword arguments for the ML potential calculator as a Python dict, e.g. \"{'default_dtype': 'float32'}\" or \"{'task_name': 'omat'}\". Def: none")
     parser.add_argument("--fix_layers", default=0, type=int, help="Keep the lowest N atomic layers of the slabs fixed in the slab optimisations (bulk-like region). Def: 0")
+    restart=parser.add_mutually_exclusive_group()
+    restart.add_argument("--restart", dest="restart", default=None, action="store_true", help="Reuse finished calculations, also of the convergence tests (VASP/CASTEP: default; ASE/MLIP: results are kept in ASE-calcs/ and reused if the input structure and settings are unchanged).")
+    restart.add_argument("--overwrite", default=False, action="store_true", help="Redo all calculations; existing VASP run directories and CASTEP outputs are moved to *_old<n> (not deleted).")
     parser.add_argument("--outdir", default="OUTPUT", type=str, help="Directory for the output structures (the previous one is kept as <outdir>_prev). Def: OUTPUT")
     parser.add_argument("--version", action="version", version="INTERFACER %s"%__version__)
 
@@ -269,7 +272,7 @@ def make_settings(args):
         settings=CalcSettings(encut=args.encut,kpspacing=args.kpspacing,xc=args.xc,sigma=args.sigma,hubU=parse_hubbard_u(args.hubU),
                               magmoms=args.magmoms,exe=exe,castep_pp=args.castep_PP,dry=args.dry,ase_pot=args.ase_pot,
                               fmax=args.ase_fmax,steps=args.ase_gsteps,optimiser=args.optimiser,relax_cell_bulk=relax_cell_bulk,
-                              outdir=args.outdir,mlip=args.mlip,mlip_model=args.mlip_model,device=args.device,mlip_kwargs=mlip_kwargs)
+                              outdir=args.outdir,restart=args.restart,overwrite=args.overwrite,mlip=args.mlip,mlip_model=args.mlip_model,device=args.device,mlip_kwargs=mlip_kwargs)
         if args.prog == 'castep': #read the cutoff/k-point spacing from the CASTEP input files, if present
                 try:
                         import ase.calculators.castep
