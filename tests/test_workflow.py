@@ -1,0 +1,59 @@
+import json
+
+import pytest
+from ase.build import bulk
+
+from interfacer.calculators import CalcSettings, get_engine
+from interfacer.workflow import InterfaceWorkflow, WorkflowConfig
+
+
+@pytest.fixture
+def emt_engine(tmp_path):
+    return get_engine("ase", CalcSettings(ase_pot="EMT", steps=100, outdir=str(tmp_path / "OUT")))
+
+
+def _cfg(tmp_path, **kw):
+    base = dict(miller1=(1, 1, 1), miller2=(1, 1, 1), creps1=3, creps2=3, max_slab_dimension=20,
+                outdir=str(tmp_path / "OUT"), outfile=str(tmp_path / "interfaces.out"))
+    base.update(kw)
+    return WorkflowConfig(**base)
+
+
+def test_python_api_full_run(tmp_path, emt_engine):
+    wf = InterfaceWorkflow(emt_engine, _cfg(tmp_path))
+    res = wf.run(bulk("Cu", "fcc", a=3.61, cubic=True), bulk("Ni", "fcc", a=3.52, cubic=True))
+    assert len(res.interfaces) == 1
+    r = res.interfaces[0]
+    assert r.n_interfaces == 2 and r.sep == pytest.approx(2.0)
+    assert 0 < r.W_ad_J < (r.W_surf1 + r.W_surf2) * 0.160217663
+    assert res.slabs1[0].sfe == pytest.approx(r.W_surf1, rel=0.05)
+    data = json.loads((tmp_path / "OUT" / "results.json").read_text())
+    assert data["interfaces"][0]["W_ad"] == pytest.approx(r.W_ad)
+    assert (tmp_path / "OUT" / "interface_cuts_0_0_opted.cif").exists()
+
+
+def test_steps_individually(tmp_path, emt_engine):
+    wf = InterfaceWorkflow(emt_engine, _cfg(tmp_path, miller_list=[(1, 0, 0), (1, 1, 1)], creps1=2, creps2=2))
+    wf.run_bulk(bulk("Cu", "fcc", a=3.61, cubic=True), bulk("Ni", "fcc", a=3.52, cubic=True))
+    assert wf.Ebulk1 < 0.1 and wf.Ebulk2 < 0.1
+    wf.cfg.miller1 = wf.cfg.miller2 = (1, 0, 0)
+    wf.screen_surfaces()
+    assert wf.cfg.miller1 == (1, 1, 1) and wf.cfg.miller2 == (1, 1, 1)
+    slabs = wf.build_slabs(1)
+    sfe = wf.compute_sfe(1, slabs)
+    assert sfe[0].sfe_J == pytest.approx(1.03, abs=0.1)  # EMT Cu(111)
+    sel = wf.select_slabs(1, slabs, sfe)
+    assert sel[0][0] == 0
+
+
+def test_surf_only_and_symmetric_slabs(tmp_path, emt_engine):
+    wf = InterfaceWorkflow(emt_engine, _cfg(tmp_path, sym_slabs1=True, thickness=5.0, surf_only=True))
+    res = wf.run(bulk("Cu", "fcc", a=3.61, cubic=True), bulk("Ni", "fcc", a=3.52, cubic=True))
+    assert res.interfaces == [] and len(res.slabs1) >= 1 and len(res.slabs2) == 1
+
+
+def test_failed_alignment_is_skipped(tmp_path, emt_engine):
+    # too small a maximum cell size: no commensurate cell -> reported and skipped, run finishes
+    wf = InterfaceWorkflow(emt_engine, _cfg(tmp_path, miller2=(1, 0, 0), max_slab_dimension=4, percentage_tolerance=0.1))
+    res = wf.run(bulk("Cu", "fcc", a=3.61, cubic=True), bulk("Ni", "fcc", a=3.52, cubic=True))
+    assert res.interfaces == []

@@ -11,7 +11,8 @@ Old scripts and command lines keep working:
 
 | Before | Now | Contents |
 |---|---|---|
-| `interfacer-new.py` (main block) | `interfacer/cli.py` | `build_parser()`, `main(argv)`, `parse_miller`, `parse_hubbard_u`, `make_settings` |
+| `interfacer-new.py` (main block) | `interfacer/workflow.py` | `WorkflowConfig`, `InterfaceWorkflow` (one method per step), result dataclasses |
+| `interfacer-new.py` (options) | `interfacer/cli.py` | `build_parser()`, `main(argv)`, `parse_miller`, `parse_hubbard_u`, `make_settings` |
 | `interfacer-new.py` (functions) | `interfacer/convergence.py` | `check_surfaces`, `conv_layers`, `conv_layers_new`, `convSep`, `checkHorizontal`, `checkHorizontal2`, `cfactor` |
 | `interfacer-new.py` (`flip_cell`, `make_interface`) | `interfacer/builder.py` | interface stacking |
 | `tools/builder.py` | `interfacer/builder.py` | `make_slab`, `permute_surface`, `standardise_slab`, `slab_aligner`, `find_commensurate_supercell`, … |
@@ -23,6 +24,26 @@ Old scripts and command lines keep working:
 | (new) | `interfacer/calculators/engines.py` | `VaspEngine`, `CastepEngine`, `AseEngine`, `get_engine` |
 | (new) | `interfacer/calculators/optimise.py` | `relax` (shared ASE optimiser), `bottom_layer_indices` |
 | (new) | `interfacer/io.py` | `write_struct`, `backup_output` |
+
+## Running the workflow from Python
+
+```python
+import ase.io
+from interfacer.calculators import CalcSettings, get_engine
+from interfacer.workflow import InterfaceWorkflow, WorkflowConfig
+
+engine = get_engine("mlip", CalcSettings(mlip="mace", mlip_model="small"))
+cfg = WorkflowConfig(miller1=(1, 1, 1), miller2=(1, 1, 1), creps1=3, creps2=3, conv_sep=True)
+results = InterfaceWorkflow(engine, cfg).run(ase.io.read("Cu.cif"), ase.io.read("Ni.cif"))
+for r in results.interfaces:
+    print(r.name, r.W_surf1, r.W_surf2, r.W_ad, r.W_ad_J)   # eV/nm^2 (and J/m^2)
+```
+
+Every `WorkflowConfig` field corresponds to a command-line option; the field comments name the option.
+
+You can also run the steps one by one: `run_bulk`, `screen_surfaces`, `converge_layers`, `build_slabs`, `compute_sfe`, `select_slabs`, `align`, `optimise_aligned`, `optimise_interface` and `run_pair`.
+
+Each run writes the results to `OUTPUT/results.json`. They include the bulk energies, the slab surface formation energies, and per interface the misfit, W_surf, separation, lateral shift and W_ad.
 
 ## Engines
 
