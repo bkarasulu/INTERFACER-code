@@ -1,7 +1,7 @@
 # Fixed bugs and known issues
 
 This file lists the bugs that were fixed during phase 1 of the refactor (see `ROADMAP.md`), and the issues that are still open.
-Regression tests for the fixes are in `tests/`; run them with `python -m pytest tests`.
+Regression tests for the fixes are in `tests/`; run them with `python -m pytest`. File locations below refer to the pre-1.0 layout (`interfacer-new.py`, `tools/`); see `package_layout.md` for where the code is now.
 
 ## Fixed
 
@@ -57,7 +57,7 @@ Regression tests for the fixes are in `tests/`; run them with `python -m pytest 
 ## Known issues (not fixed yet)
 - `-th/--thickness` is only used for symmetric slabs; `slab_aligner` ignores it. The slab thickness is set by `-cr1/-cr2` (or `-tlay`).
 - `-flip2` does not work reliably (the cell angles are not preserved).
-- With the ASE potentials, bulk structures are relaxed at fixed cell (planned with the MLIP support, phase 4/6).
+- With the ASE potentials, bulk structures are relaxed at fixed cell unless `--relax_cell_bulk` is given.
 - The layer convergence test (`-tlay`) converges the energy per atom, which converges slowly with thickness; a surface-energy criterion would be better.
 - The CASTEP path and VASP pseudo-hydrogen passivation (`-pass`) could not be tested here (no CASTEP/VASP binaries); the VASP input generation is tested with `-dry`.
 - No restart support for the convergence tests (`-tsep`, `-thor`, `-tlay`) with ASE.

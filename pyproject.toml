@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "interfacer"
+dynamic = ["version"]
+description = "Build and analyse solid-solid interfaces from two bulk structures (VASP, CASTEP and ASE calculators)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "See repository" }
+dependencies = [
+    "numpy>=1.24",
+    "scipy",
+    "matplotlib",
+    "ase>=3.23",
+    "spglib>=2.0",
+    "pymatgen>=2023.1",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+interfacer = "interfacer.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "interfacer.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]

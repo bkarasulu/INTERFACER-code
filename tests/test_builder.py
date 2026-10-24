@@ -2,16 +2,20 @@ import numpy as np
 import pytest
 from ase.build import bulk
 
-from tools.builder import (check_surf_unique, cut_cell, find_commensurate_supercell, get_cut_vectors,
+from interfacer.builder import (check_surf_unique, cut_cell, find_commensurate_supercell, get_cut_vectors,
                            make_slab, permute_surface, RH, slab_aligner, slab_thickness, standardise_slab)
-from tools.analysis import misfit, surf_area
+from interfacer.analysis import misfit, surf_area
 
 
-def test_tools_modules_import_independently():
-    # previously the three modules imported each other with 'import *' (circular imports)
+def test_tools_compat_shims():
+    # the old 'tools' modules still work (previously they imported each other circularly)
     import importlib
     for name in ("tools.builder", "tools.analysis", "tools.external"):
         importlib.import_module(name)
+    from tools.builder import make_slab as m1
+    from interfacer.builder import make_slab as m2
+    from tools.external import call_vasp, call_castep, call_ase  # noqa: F401
+    assert m1 is m2
 
 
 @pytest.mark.parametrize("miller", [(1, 0, 0), (1, 1, 0), (1, 1, 1), (2, 1, 0)])

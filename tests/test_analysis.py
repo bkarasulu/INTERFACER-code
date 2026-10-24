@@ -3,8 +3,8 @@ import pytest
 from ase.build import bulk
 from ase.calculators.emt import EMT
 
-from tools.analysis import calculate_chem_pots, calculate_SFE, find_prim, get_fu, get_interface_energy, misfit, surf_area
-from tools.builder import make_slab
+from interfacer.analysis import calculate_chem_pots, calculate_SFE, find_prim, get_fu, get_interface_energy, misfit, surf_area
+from interfacer.builder import make_slab
 
 
 def _with_emt(atoms):
@@ -78,7 +78,7 @@ def test_calculate_chem_pots():
 
 
 def test_get_interface_energy_runs(cu_bulk, ni_bulk):
-    from tools.builder import slab_aligner
+    from interfacer.builder import slab_aligner
     b1 = _with_emt(cu_bulk.copy()); b2 = _with_emt(ni_bulk.copy())
     s1, s2 = slab_aligner(make_slab((1, 1, 1), cu_bulk, repeat=(1, 1, 2)), make_slab((1, 1, 1), ni_bulk, repeat=(1, 1, 2)),
                           3, 20, 2, 4, 7, cu_bulk, ni_bulk)

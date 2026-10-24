@@ -97,8 +97,16 @@ Pipeline restarts become uniform for every engine (skip a step when its output a
 - **Phase 1 done:**
   - `symINTERFACER` merged.
   - Heavy VASP files and `__pycache__` untracked.
-  - Bugs fixed in place (the script/`tools` layout is unchanged); see `known_issues.md` for the full list and the open issues.
-- **Phase 2 started:** `tests/` has 43 regression and end-to-end tests (ASE/LJ, EMT and a VASP dry run).
+  - Bugs fixed; see `known_issues.md`.
+- **Phase 2 started:** regression and end-to-end tests in `tests/`.
+- **Phase 3 done:**
+  - Installable `interfacer` package in `src/` (`pyproject.toml`) with the `interfacer` command.
+  - `interfacer-new.py` and `tools/` are compatibility wrappers. See `package_layout.md`.
+- **Phase 4 done:**
+  - `interfacer.calculators`: `Engine` interface, `VaspEngine`/`CastepEngine` (the original drivers, unchanged behaviour) and `AseEngine` (any ASE calculator).
+  - Shared ASE optimiser with cell relaxation, frozen bottom layers and a choice of optimiser.
+  - New CLI options: `--optimiser`, `--relax_cell_bulk`, `--fix_layers`, `--outdir`.
+  - 51 tests pass.
 
 ## Roadmap (phases, each one or more commits on `claude/exciting-hamilton-eunp54`)
 1. **Housekeeping.** Merge `symINTERFACER`. Remove `__pycache__` and the heavy VASP files (POTCAR, WAVECAR, CHG*, DOSCAR, EIGENVAL, vasprun.xml, PCDAT) from tracking, and add them to `.gitignore`. Finish the bug audit and record it in `docs/known_issues.md`.

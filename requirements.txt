@@ -1,4 +1,4 @@
-# Core dependencies of INTERFACER (a pyproject.toml will follow, see docs/ROADMAP.md)
+# Core dependencies of INTERFACER (same as pyproject.toml; prefer: pip install -e .[test])
 numpy>=1.24
 scipy
 matplotlib

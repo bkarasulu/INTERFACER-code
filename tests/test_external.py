@@ -4,7 +4,8 @@ import numpy as np
 import pytest
 from ase.build import bulk, fcc111
 
-from tools.external import _ldau_lists, _vasp_cmd, call_ase, call_vasp, handle_magmoms, vasp_continue
+from interfacer.calculators.classical import call_ase
+from interfacer.calculators.vasp import _ldau_lists, _vasp_cmd, call_vasp, handle_magmoms, vasp_continue
 
 
 @pytest.mark.parametrize("exe,variant,expected", [

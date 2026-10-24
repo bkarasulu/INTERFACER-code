@@ -1,21 +1,12 @@
-import importlib.util
 import os
 import sys
 
 import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
-
-@pytest.fixture(scope="session")
-def interfacer():
-    """The interfacer-new.py script imported as a module (its main block is not run)."""
-    spec = importlib.util.spec_from_file_location("interfacer_main", os.path.join(ROOT, "interfacer-new.py"))
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+for p in (os.path.join(ROOT, "src"), ROOT):  # works without 'pip install -e .' as well
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
 
 @pytest.fixture
