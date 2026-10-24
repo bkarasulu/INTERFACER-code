@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+message: "If you use INTERFACER, please cite it as below."
+title: "INTERFACER: automated generation and analysis of atomistic models of solid-solid interfaces"
+type: software
+license: GPL-3.0-or-later
+repository-code: "https://github.com/bkarasulu/INTERFACER-code"
+version: 1.0.0.dev0
+authors:
+  - family-names: Sen
+    given-names: Huseyin Sener
+    affiliation: "Department of Chemistry, University of Warwick, Coventry CV4 7AL, UK"
+  - family-names: Karasulu
+    given-names: Bora
+    affiliation: "Department of Chemistry, University of Warwick, Coventry CV4 7AL, UK"
+keywords:
+  - solid-solid interfaces
+  - surfaces
+  - density functional theory
+  - machine-learning interatomic potentials
+  - solid-state batteries
+references:
+  - type: article
+    authors:
+      - family-names: Sen
+        given-names: Huseyin Sener
+      - family-names: Karasulu
+        given-names: Bora
+    title: "Atomic-level insights into the highly conductive lithium thio-phosphate solid electrolytes with exceptional stability against lithium metal"
+    journal: "Journal of Materials Chemistry A"
+    year: 2025
