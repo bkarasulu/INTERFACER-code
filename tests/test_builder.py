@@ -145,3 +145,26 @@ def test_internal_symmetric_slabs_match_pymatgen(name, miller, n):
 def test_permute_surface_rejects_unknown_method(cu_bulk):
     with pytest.raises(ValueError):
         permute_surface(cu_bulk, (1, 1, 1), 5.0, vacuum=5.0, method="julian")
+
+
+@pytest.mark.parametrize("name", ["Li3PS4.vasp", "Li2S.cif", "Na3OCl.cif", "Li.cif"])
+def test_make_slab_normal_points_up_for_all_orientations(name):
+    # the surface normal (a x b) and c must point along +z, otherwise the second slab is stacked below the first
+    import itertools
+    import os
+    import ase.io
+    b = ase.io.read(os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", name))
+    for m in itertools.product((-1, 0, 1, 2), repeat=3):
+        if m == (0, 0, 0):
+            continue
+        s = make_slab(m, b)
+        n = np.cross(s.cell[0], s.cell[1])
+        assert n[2] > 0 and s.cell[2][2] > 0, m
+        assert abs(n[0]) < 1e-6 * abs(n[2]) and abs(n[1]) < 1e-6 * abs(n[2]), m
+
+
+def test_calc_R1_antiparallel():
+    from interfacer.builder import calc_R1
+    R = calc_R1([0, 0, -2.0], [0, 0, 1])
+    assert np.allclose(R @ [0, 0, -1], [0, 0, 1]) and np.isclose(np.linalg.det(R), 1)
+    assert np.allclose(calc_R1([0, 0, 3.0], [0, 0, 1]), np.eye(3))

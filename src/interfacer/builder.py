@@ -22,8 +22,15 @@ def calc_R1(x1,y1):
     u = np.cross(x1,y1)
 
     tol = 0.001
-    if np.linalg.norm(u) < tol:
-            return Id
+    if np.linalg.norm(u) < tol*np.linalg.norm(x1)*np.linalg.norm(y1):
+            if np.dot(x1,y1) > 0:
+                    return Id
+            #antiparallel: rotate by 180 degrees about an axis perpendicular to x1 (previously no rotation was done, so
+            #slabs with the surface normal along -z kept it and the second slab was stacked below the first one)
+            axis = np.cross(x1,[1,0,0])
+            if np.linalg.norm(axis) < tol*np.linalg.norm(x1): axis = np.cross(x1,[0,1,0])
+            axis = axis/np.linalg.norm(axis)
+            return 2*np.outer(axis,axis) - Id
 
     sin_th = np.linalg.norm(u)/(np.linalg.norm(x1)*np.linalg.norm(y1))
     cos_th = np.dot(x1,y1)/(np.linalg.norm(x1)*np.linalg.norm(y1))
@@ -46,6 +53,25 @@ def rotate_slab(slab):
     slab.cell[1] = np.dot(R1,e)
     slab.cell[2] = np.dot(R1,f)
     slab.set_scaled_positions(frac_pos)
+    return slab
+
+def orient_up(slab, wrap=True):
+    """Orient a slab so that the surface normal (a x b) and c point along +z, keeping a right-handed cell.
+
+    If c points down after rotating the normal to +z, -c (an equivalent lattice vector) is used; the atoms keep their
+    Cartesian positions and are wrapped along c (wrap=True, periodic cells as from make_slab) or shifted into the cell
+    (wrap=False, slabs with vacuum)."""
+    slab = rotate_slab(slab)
+    if slab.cell[2][2] < 0:
+        cell = slab.cell[:].copy()
+        cell[2] = -cell[2]
+        slab.set_cell(cell, scale_atoms=False)
+        sp = slab.get_scaled_positions(wrap=False)
+        if wrap:
+            sp[:, 2] %= 1.0
+        else:
+            sp[:, 2] -= np.floor(sp[:, 2].min())
+        slab.set_scaled_positions(sp)
     return slab
 
 def lcm(a,b):
@@ -200,7 +226,7 @@ def standardise_slab(slab):
     slab = rotate_slab(slab)
     if np.dot(slab.cell[2],np.cross(slab.cell[0],slab.cell[1])) < 0:
         slab = flip_handedness(slab)
-    return slab
+    return orient_up(slab, wrap=False) #surface normal and c along +z (vacuum slab: atoms shifted, not wrapped)
 
 def atomic_planes(slab, tol=0.3):
     """Group the atoms of a slab into planes along the surface normal (a x b).
@@ -320,7 +346,7 @@ def make_slab(miller, atoms,repeat=(1,1,1),square=False):
     #maintains a3.(0,0,1) > 0
     if np.dot(slab.cell[2],np.cross(slab.cell[0],slab.cell[1])) < 0:
         slab = flip_handedness(slab)
-    return slab
+    return orient_up(slab, wrap=True) #surface normal and c along +z (the slab cell is periodic along c)
 
 def square_slab(slab):
     #now set f perpendicular to surface, means can't make it thicker any more!

@@ -61,7 +61,7 @@ jobs:
       - name: MACE tests and tutorials
         env:
           INTERFACER_SLOW_TESTS: "1"
-        run: python -m pytest -q tests/test_mlip.py tests/test_tutorials.py
+        run: python -m pytest -q tests/test_mlip.py tests/test_tutorials.py tests/test_systems.py
 
   docs:
     runs-on: ubuntu-latest
