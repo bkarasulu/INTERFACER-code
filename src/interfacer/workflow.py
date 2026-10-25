@@ -15,29 +15,30 @@ Use it from Python::
     results = wf.run(ase.io.read("Cu.cif"), ase.io.read("Ni.cif"))
     print(results.interfaces[0].W_ad)
 
-The command line (interfacer / interfacer-new.py) builds a WorkflowConfig from its options and runs the same steps.
+The command line (interfacer / interfacer.py) builds a WorkflowConfig from its options and runs the same steps.
 """
 import ast
 import json
 import os
 import time
 from dataclasses import asdict, dataclass, field
-from sys import stdout
 from typing import List, Optional
 
 import ase
 import ase.io
+import numpy as np
 from ase.build import niggli_reduce
 
-from .analysis import calculate_SFE, find_prim, get_fu, is_stoichiometric, misfit, surf_area
-from .builder import make_interface, make_slab, permute_surface, slab_aligner, standardise_slab
-from .convergence import cfactor, check_surfaces, checkHorizontal, conv_layers, convSep
+from .analysis import calculate_chem_pots, calculate_SFE, find_prim, interface_energy, sfe_vs_chempot, get_fu, is_stoichiometric, misfit, surf_area, warn_clashes
+from .builder import align_three, make_interface, make_multilayer, make_slab, permute_surface, reduce_inplane_pair, slab_aligner, standardise_slab
+from .convergence import cfactor, check_surfaces, checkHorizontal, conv_layers, convSep, optimise_placement
+from .grainboundary import gb_energy, symmetric_tilt_gb, twist_gb
 from .io import backup_output, write_struct
+from .log import ensure_logging, say
 
 
 def _log(msg=""):
-    print(msg)
-    stdout.flush()
+    say(msg)
 
 
 @dataclass
@@ -53,12 +54,15 @@ class WorkflowConfig:
     sym_slabs1: bool = False              # symmetric slabs for material 1 (-sym_slabs1)
     sym_slabs2: bool = False              # (-sym_slabs2)
     thickness: float = 7.0                # min. thickness of symmetric slabs, A (-th)
+    sym_method: str = "pymatgen"          # generator of symmetric slabs: pymatgen or internal (--sym_method)
     no_slabs: int = 1                     # number of most stable slabs used per material (-no_slabs)
     prim: bool = False                    # use primitive bulk cells (-prim)
     chem_pots1: Optional[dict] = None     # chemical potentials for the SFE of slab 1, eV (-cp1)
     chem_pots2: Optional[dict] = None     # (-cp2)
     decomps1: Optional[list] = None       # decomposition product files for slab 1 (-decomps1)
     decomps2: Optional[list] = None       # (-decomps2)
+    sfe_scan1: Optional[tuple] = None     # (element, partner, dmu_min, dmu_max): SFE vs chemical potential (--sfe_scan1)
+    sfe_scan2: Optional[tuple] = None     # (--sfe_scan2)
     passivate: bool = False               # pseudo-H passivation, VASP (-pass)
     fix_layers: int = 0                   # fixed bottom layers in slab optimisations (--fix_layers)
     # alignment
@@ -84,6 +88,17 @@ class WorkflowConfig:
     sep_step: float = 0.25                # (-sep_step)
     test_hori: bool = False               # lateral translation scan (-thor)
     hor_steps: tuple = (0.25, 0.25)       # (-hor_steps)
+    test_opt: bool = False                # scipy optimisation of the rigid-slab placement (x, y, sep) (-topt)
+    topt_maxiter: int = 60                # (--topt_maxiter)
+    minkowski: bool = False               # 2D Minkowski reduction of the matched in-plane cell (--minkowski)
+    # three-layer interfaces (slab1|slab2|slab3; material 3 from -i3)
+    miller3: tuple = (1, 0, 0)            # (-m3)
+    creps3: int = 1                       # (-cr3)
+    sep2: Optional[float] = None          # gap between slab 2 and slab 3, A; default: sep (-sep2)
+    # grain boundaries of material 1 (instead of an interface of two materials)
+    gb: Optional[str] = None              # 'tilt' or 'twist' (--gb)
+    gb_mn: tuple = (2, 1)                 # CSL integers (m, n) of a twist boundary (--gb_mn)
+    gb_expansion: float = 0.0             # extra rigid-body separation at each tilt boundary, A (--gb_expansion)
     # calculations
     kpgrid: Optional[str] = None          # k-point grid for slabs/interfaces, e.g. '4 4 1' (-kp_gr, -gamma)
     zero_chem_pots: bool = False          # use zero chemical potentials for non-stoichiometric slabs (test runs only)
@@ -126,10 +141,49 @@ class InterfaceResult:
     n_interfaces: int = 2
     lateral_shift: Optional[list] = None  # fractional (x, y) from -thor
     area: float = float("nan")            # A^2
+    gamma_int: float = float("nan")       # interface energy gamma_1 + gamma_2 - W_ad, eV/nm^2
 
     @property
     def W_ad_J(self):
         return self.W_ad * cfactor
+
+    @property
+    def gamma_int_J(self):
+        return self.gamma_int * cfactor
+
+
+@dataclass
+class TrilayerResult:
+    name: str
+    E1: float                             # eV, aligned and optimised slabs
+    E2: float
+    E3: float
+    sep12: float                          # A
+    sep23: float
+    E_stack: float                        # eV, optimised slab1|slab2|slab3
+    W_ad_total: float                     # (E1 + E2 + E3 - E_stack) / A, eV/nm^2: W_ad(1|2) + W_ad(2|3)
+    area: float                           # A^2
+
+    @property
+    def W_ad_total_J(self):
+        return self.W_ad_total * cfactor
+
+
+@dataclass
+class GBResult:
+    name: str
+    kind: str                             # 'tilt' or 'twist'
+    miller: tuple
+    natoms: int
+    E_gb: float                           # eV, optimised bicrystal
+    gamma_gb: float                       # grain-boundary energy, eV/nm^2
+    area: float                           # A^2
+    twist_angle: Optional[float] = None   # degrees (twist boundaries)
+    sigma: Optional[int] = None           # CSL Sigma (twist boundaries)
+
+    @property
+    def gamma_gb_J(self):
+        return self.gamma_gb * cfactor
 
 
 @dataclass
@@ -141,6 +195,8 @@ class WorkflowResults:
     slabs1: List[SlabResult] = field(default_factory=list)
     slabs2: List[SlabResult] = field(default_factory=list)
     interfaces: List[InterfaceResult] = field(default_factory=list)
+    trilayers: List[TrilayerResult] = field(default_factory=list)
+    grain_boundaries: List[GBResult] = field(default_factory=list)
 
     def to_dict(self):
         return asdict(self)
@@ -150,11 +206,15 @@ class InterfaceWorkflow:
     """Runs the INTERFACER workflow with an engine (see interfacer.calculators) and a WorkflowConfig."""
 
     def __init__(self, engine, config=None):
+        ensure_logging()
         self.engine = engine
         self.cfg = config if config is not None else WorkflowConfig()
         self.results = WorkflowResults()
-        self.bulk1 = self.bulk2 = None
-        self.Ebulk1 = self.Ebulk2 = None
+        self.bulk1 = self.bulk2 = self.bulk3 = None
+        self.Ebulk1 = self.Ebulk2 = self.Ebulk3 = None
+        self.slab3 = None
+        self.chem_pots = {1: None, 2: None}   # chemical potentials used for the SFEs (given or from decompositions)
+        self.opt_slabs = {1: [], 2: []}        # pre-optimised slabs (for the SFE analysis)
         self._outf = None
 
     # ------------------------------------------------------------------------------------------------ helpers
@@ -237,7 +297,7 @@ class InterfaceWorkflow:
             _log('Surface %d is read from %s' % (n, surface))
         elif sym:
             _log('\nBulk%d is being symmetrized' % n)
-            slabs = permute_surface(bulk.copy(), miller, cfg.thickness, vacuum=cfg.vac_slab)
+            slabs = permute_surface(bulk.copy(), miller, cfg.thickness, vacuum=cfg.vac_slab, method=cfg.sym_method)
             if not slabs:
                 slabs.append(make_slab(miller, bulk, repeat=(1, 1, creps), square=0))
         else:
@@ -267,6 +327,13 @@ class InterfaceWorkflow:
         miller = cfg.miller1 if n == 1 else cfg.miller2
         pas = {1: 'bot', 2: 'top'}[n] if cfg.passivate else None
         decomps = self._decomps(n, decomp_files) if (decomp_files and not chem_pots) else None
+        if chem_pots:
+            self.chem_pots[n] = {k: float(v) for k, v in chem_pots.items()}
+        elif decomps and not cfg.dry:
+            self.chem_pots[n] = calculate_chem_pots(bulk, decomps)
+            _log("Chemical potentials for material %d (from the decomposition products): %s"
+                 % (n, ", ".join("%s: %.3f eV" % kv for kv in sorted(self.chem_pots[n].items()))))
+        self.opt_slabs[n] = []
         results = []
         for i, slab in enumerate(slabs):
             slab_opt = slab.copy()
@@ -279,6 +346,7 @@ class InterfaceWorkflow:
                                           passivate=pas, KPgrid_=cfg.kpgrid, fix_bottom_layers=cfg.fix_layers)  #fixed cell: keeps the vacuum
             slab_opt.name = 'slab%d_cut%s' % (n, i)
             self.write(slab_opt, "slab%d_cut%s_pre_opted" % (n, i))
+            self.opt_slabs[n].append(slab_opt)
 
             if cfg.dry:
                 _log("Dry run: surface formation energy not computed (set to 0).")
@@ -293,6 +361,38 @@ class InterfaceWorkflow:
                 _log("Surface formation energy of %s: %.2f eV/nm^2 = %.2f J/m^2\n" % (slab_opt.name, SFE, SFE * cfactor))
             results.append(SlabResult(slab_opt.name, tuple(miller), len(slab_opt), float(E), float(SFE)))
         return results
+
+    def scan_sfe(self, n, scan):
+        """SFE of all slabs of material n vs the chemical potential: scan = (element, partner, dmu_min, dmu_max).
+        Writes <outdir>/sfe_vs_mu_<n>.csv and .png and prints the stability ranges of the terminations."""
+        el, partner, lo, hi = scan
+        bulk = self.bulk1 if n == 1 else self.bulk2
+        cp = self.chem_pots[n]
+        if not cp:
+            # stoichiometric slabs only: chemical potentials are not needed for the SFE; use the bulk energy per atom
+            cp = {e: bulk.get_potential_energy() / len(bulk) for e in set(bulk.get_chemical_symbols())}
+        dmu = np.linspace(float(lo), float(hi), 101)
+        names = [s.name for s in self.opt_slabs[n]]
+        table = np.array([sfe_vs_chempot(s, bulk, cp, el, partner, dmu) for s in self.opt_slabs[n]])
+        csv = os.path.join(self.cfg.outdir, "sfe_vs_mu_%d.csv" % n)
+        np.savetxt(csv, np.column_stack([dmu, table.T]), delimiter=",", header="dmu_%s(eV)," % el + ",".join(names), comments="")
+        from matplotlib.figure import Figure   # no pyplot: works without a display and does not change the backend
+        fig = Figure()
+        ax = fig.add_subplot()
+        for name, row in zip(names, table):
+            ax.plot(dmu, row * cfactor, label=name)
+        ax.set_xlabel("Delta mu(%s) [eV] (compensated by %s)" % (el, partner))
+        ax.set_ylabel("Surface formation energy [J/m$^2$]")
+        ax.legend()
+        fig.savefig(os.path.join(self.cfg.outdir, "sfe_vs_mu_%d.png" % n))
+        best = np.argmin(table, axis=0)
+        _log("Most stable termination of material %d vs Delta mu(%s) (written to %s):" % (n, el, csv))
+        start = 0
+        for k in range(1, len(dmu) + 1):
+            if k == len(dmu) or best[k] != best[start]:
+                _log("  %6.2f ... %6.2f eV: %s" % (dmu[start], dmu[k - 1], names[best[start]]))
+                start = k
+        return dmu, table
 
     def select_slabs(self, n, slabs, sfe_results):
         """The cfg.no_slabs most stable slabs (lowest SFE), as a list of (index, slab, SlabResult)."""
@@ -314,6 +414,9 @@ class InterfaceWorkflow:
         _log("\nAligning the two slabs...")
         s1, s2 = slab_aligner(slab1.copy(), slab2.copy(), cfg.init_length, cfg.max_slab_dimension, cfg.step_length,
                               cfg.percentage_tolerance, cfg.thickness, self.bulk1, self.bulk2)
+        if cfg.minkowski:
+            s1, s2 = reduce_inplane_pair(s1, s2)
+            _log("Matched in-plane cell reduced (2D Minkowski): a = %.2f A, b = %.2f A, gamma = %.1f deg" % tuple(s1.cell.cellpar()[[0, 1, 5]]))
         return s1, s2, m0, misfit(s1, s2)
 
     def optimise_aligned(self, slab1, slab2, ci, cj):
@@ -344,23 +447,29 @@ class InterfaceWorkflow:
         self.write(slab1, "slab1_cut%s_aligned_opted" % ci); self.write(slab2, "slab2_cut%s_aligned_opted" % cj)
         return slab1, slab2, E1, E2, Ws1, Ws2
 
-    def optimise_interface(self, interface, name, vac_used, E1, E2):
+    def optimise_interface(self, interface, name, vac_used, E1, E2, fix_cell=False):
         """Optimise the interface; return (interface, E_int, W_ad in eV/nm^2, number of interfaces in the cell).
 
         W_ad = (E_slab1 + E_slab2 - E_int) / (n_int * A): with a small vacuum (<= 4 A on each side, e.g. sep/2) the
-        periodic cell contains two interfaces (n_int=2), otherwise one interface and two free surfaces (n_int=1)."""
+        periodic cell contains two interfaces (n_int=2), otherwise one interface and two free surfaces (n_int=1).
+
+        fix_cell: keep the cell fixed (used after the separation/lateral scans, so that the optimised separation is kept);
+        otherwise VASP relaxes the full cell (ISIF=3) and ASE/ML engines the cell length along z."""
         _log("\nOptimizing the final interface geometry.")
         interface.name = name
         dipC = 'SC' if vac_used > 4 else 'None'
         #CHECK: Should we fix the volume or not?? fix vol works for some cases (YIG) but not for some (Al2O3//Si)
-        Eint, interface = self.engine.run(interface, 'geom', name, dipolCorr=dipC, FixVol=0, nosymm=1, KPgrid_=self.cfg.kpgrid)
+        if fix_cell:
+            _log("(fixed cell: the separation from the -tsep/-thor scan is kept)")
+        Eint, interface = self.engine.run(interface, 'geom', name, dipolCorr=dipC, FixCell=fix_cell, FixVol=0, nosymm=1,
+                                          KPgrid_=self.cfg.kpgrid)
         n_int = 2 if vac_used <= 4 else 1
         Wad = (E1 + E2 - Eint) / (n_int * surf_area(interface)) / 0.01  #A2 to nm2
         self.report('W_ad (work of adhesion, %d interface(s) in the cell) for the final optimised interface: %.2f eV/nm^2 = %.2f J/m^2\n'
                     % (n_int, Wad, Wad * cfactor))
         return interface, Eint, Wad, n_int
 
-    def run_pair(self, ci, slab1, cj, slab2):
+    def run_pair(self, ci, slab1, cj, slab2, sfe1=None, sfe2=None):
         """Align, optimise and interface one pair of slabs. Returns an InterfaceResult (or None if alignment fails)."""
         cfg = self.cfg
         try:
@@ -371,6 +480,7 @@ class InterfaceWorkflow:
         slab1_a.name = 'slab1_cut%s_aligned' % ci
         slab2_a.name = 'slab2_cut%s_aligned' % cj
         _log("\nMisfit (mu) of %s and %s (after alignment): %.2f%%" % (slab1_a.name, slab2_a.name, m1 * 100))
+        warn_clashes(slab1_a, slab1_a.name); warn_clashes(slab2_a, slab2_a.name)
         self._view(slab1_a, slab2_a)
         if cfg.flip2:  #Flip the slab2 (top slab) upside-down. The cell angles cannot be preserved (does not work reliably).
             slab2_a.rotate(a=180, v='x', rotate_cell=0, center=(0, 0, 0))
@@ -393,16 +503,25 @@ class InterfaceWorkflow:
         self.write(interface, "interface-pre_opt_cuts_%s_%s" % (ci, cj))
 
         shift = None
-        if cfg.conv_sep:
-            _log("\n\nFinding the optimal interface (interlayer) separation.")
-            #separation/2 is used as vacuum padding to have a symmetric seperation at all interfaces.
-            interface, sep = convSep(slab1_o, slab2_o, vac=None, sep_init=cfg.sep_init, sep_final=cfg.sep_final, sep_step=cfg.sep_step,
-                                     view=0, ifPlot=1, engine=self.engine, kpgrid=cfg.kpgrid, outdir=cfg.outdir)
-            vac_used = sep / 2
+        # The lateral registry is scanned first (at -sep), then the separation at the best registry: scanning the
+        # separation at an unfavourable registry gives too large a separation.
         if cfg.test_hori:
             _log("\n\nFinding the optimial interface lateral shift.")
             interface, _, shift = checkHorizontal(slab1_o, slab2_o, sep=sep, steps=cfg.hor_steps, ifPlot=1, engine=self.engine,
                                                   kpgrid=cfg.kpgrid, outdir=cfg.outdir)
+            vac_used = sep / 2
+        if cfg.conv_sep:
+            _log("\n\nFinding the optimal interface (interlayer) separation%s." % (" at the lateral shift (%.2f, %.2f)" % tuple(shift) if shift else ""))
+            #separation/2 is used as vacuum padding to have a symmetric seperation at all interfaces.
+            interface, sep = convSep(slab1_o, slab2_o, vac=None, sep_init=cfg.sep_init, sep_final=cfg.sep_final, sep_step=cfg.sep_step,
+                                     view=0, ifPlot=1, engine=self.engine, kpgrid=cfg.kpgrid, outdir=cfg.outdir, shift=shift)
+            vac_used = sep / 2
+        if cfg.test_opt:
+            _log("\n\nOptimising the placement of the rigid slabs (x, y, separation) with scipy.")
+            interface, (x, y, sep), _ = optimise_placement(slab1_o, slab2_o, sep, xy0=tuple(shift) if shift else (0.0, 0.0),
+                                                           engine=self.engine, kpgrid=cfg.kpgrid, outdir=cfg.outdir,
+                                                           maxiter=cfg.topt_maxiter)
+            shift = [x, y]
             vac_used = sep / 2
         if cfg.niggli:
             _log("Niggli reduce the interface...")
@@ -410,22 +529,130 @@ class InterfaceWorkflow:
         self._view(interface)
 
         name = 'interface_cuts_%s_%s' % (ci, cj)
-        interface, Eint, Wad, n_int = self.optimise_interface(interface, name, vac_used, E1, E2)
+        interface, Eint, Wad, n_int = self.optimise_interface(interface, name, vac_used, E1, E2,
+                                                              fix_cell=(cfg.conv_sep or cfg.test_hori or cfg.test_opt))
         self.write(interface, name + "_opted")
         ase.io.write(os.path.join(cfg.outdir, name + "_opted.cif"), interface, format='cif')
+        # interface energy (Dupre): gamma_int = gamma_1 + gamma_2 - W_ad; for non-stoichiometric slabs the surface
+        # formation energy (from the pre-optimised slab) is used as gamma
+        g1 = Ws1 if is_stoichiometric(slab1_o, self.bulk1) or sfe1 is None else sfe1
+        g2 = Ws2 if is_stoichiometric(slab2_o, self.bulk2) or sfe2 is None else sfe2
+        g_int = interface_energy(g1, g2, Wad)
+        self.report('gamma_int (interface energy = gamma_1 + gamma_2 - W_ad): %.2f eV/nm^2 = %.2f J/m^2\n' % (g_int, g_int * cfactor))
         return InterfaceResult(name, slab1.name, slab2.name, float(m0), float(m1), float(E1), float(E2), float(Ws1), float(Ws2),
                                float(sep), float(Eint), float(Wad), n_int, [float(x) for x in shift] if shift else None,
-                               float(surf_area(interface)))
+                               float(surf_area(interface)), float(g_int))
+
+    def setup_material3(self, atoms3):
+        """Optimise bulk 3 and cut slab 3 (cfg.miller3, cfg.creps3 layers) for three-layer interfaces."""
+        cfg = self.cfg
+        if cfg.prim:
+            atoms3 = find_prim(atoms3)
+        _log("\nComputing bulk 3 energy (%s)." % atoms3.get_chemical_formula(empirical=1))
+        atoms3.name = 'bulk3'
+        E, self.bulk3 = self.engine.run(atoms3, "geom", 'bulk3', dipolCorr='None', relax_cell=True)
+        self.Ebulk3 = E / len(self.bulk3)
+        self.write(self.bulk3, "bulk3_opted")
+        self.slab3 = make_slab(tuple(cfg.miller3), self.bulk3, repeat=(1, 1, cfg.creps3), square=0)
+        self.slab3.name = 'slab3_cut0'
+
+    def run_trilayer(self, ci, slab1, cj, slab2, slab3):
+        """Three-layer interface slab1|slab2|slab3 (slab 3 from material 3, -i3). Returns a TrilayerResult or None.
+
+        The three slabs get a common in-plane cell (align_three), are optimised with a fixed cell, stacked with the gaps
+        sep (1|2) and sep2 (2|3) and a vacuum of at least 4 A on each side (so that the periodic images do not form a
+        3|1 interface), and the stack is optimised with a fixed cell. W_ad_total = W_ad(1|2) + W_ad(2|3)."""
+        cfg = self.cfg
+        _log("\n\nThree-layer interface %s | %s | %s" % (slab1.name, slab2.name, slab3.name))
+        try:
+            s1, s2, s3 = align_three(slab1.copy(), slab2.copy(), slab3.copy(), cfg.init_length, cfg.max_slab_dimension,
+                                     cfg.step_length, cfg.percentage_tolerance, cfg.thickness, self.bulk1, self.bulk2, self.bulk3)
+        except RuntimeError as err:
+            _log("Alignment of the three slabs failed: %s" % err)
+            return None
+        _log("Misfits after alignment: 1|2 %.2f%%, 2|3 %.2f%%" % (misfit(s1, s2) * 100, misfit(s2, s3) * 100))
+        tag = "%s_%s_%s" % (ci, cj, 0)
+        energies, opted = [], []
+        for n, s in ((1, s1), (2, s2), (3, s3)):
+            s.center(vacuum=cfg.vac_slab, axis=2)
+            s.name = "slab%d_trilayer_%s" % (n, tag)
+            E, s = self.engine.run(s, 'geom', s.name, dipolCorr='sc', FixCell=True, FixVol=0, nosymm=1, vac=cfg.vac_slab,
+                                   KPgrid_=cfg.kpgrid, fix_bottom_layers=cfg.fix_layers)
+            energies.append(E); opted.append(s)
+            self.write(s, s.name + "_opted")
+        sep12 = cfg.sep
+        sep23 = cfg.sep if cfg.sep2 is None else cfg.sep2
+        vac = cfg.vac_int
+        if vac < 4.0:   # a smaller vacuum would join slab 3 and slab 1 across the periodic boundary (a 3|1 interface)
+            _log("Three-layer interface: vacuum of 4 A on each side (instead of -vac_int %.1f A), so that slab 3 and slab 1 "
+                 "do not form an extra interface across the periodic boundary" % vac)
+            vac = 4.0
+        name = "trilayer_cuts_%s" % tag
+        stack = make_multilayer(opted, [sep12, sep23], vac)
+        stack.name = name
+        self.write(stack, name)
+        E_stack, stack = self.engine.run(stack, 'geom', name, dipolCorr='SC', FixCell=True, FixVol=0, nosymm=1, KPgrid_=cfg.kpgrid)
+        self.write(stack, name + "_opted")
+        area = surf_area(stack)
+        W = (sum(energies) - E_stack) / area / 0.01
+        self.report("W_ad_total (three-layer interface %s, W_ad(1|2) + W_ad(2|3)): %.2f eV/nm^2 = %.2f J/m^2\n" % (name, W, W * cfactor))
+        return TrilayerResult(name, *(float(e) for e in energies), float(sep12), float(sep23), float(E_stack), float(W), float(area))
+
+    def run_gb(self, atoms):
+        """Grain boundary of one material (cfg.gb = 'tilt' or 'twist', boundary plane cfg.miller1). Returns WorkflowResults.
+
+        The bicrystal contains two equivalent boundaries; it is optimised with a variable cell length along the normal
+        (ASE/ML engines; VASP relaxes the whole cell). gamma_GB = (E_bicrystal - N E_bulk/atom) / (2 A)."""
+        cfg = self.cfg
+        if cfg.gb not in ("tilt", "twist"):
+            raise ValueError("gb must be 'tilt' or 'twist', got '%s'" % cfg.gb)
+        if cfg.prim:
+            atoms = find_prim(atoms)
+        _log("Grain boundary (%s) of %s, boundary plane %s" % (cfg.gb, atoms.get_chemical_formula(empirical=1), tuple(cfg.miller1)))
+        atoms.name = 'bulk1'
+        E, self.bulk1 = self.engine.run(atoms, "geom", 'bulk1', dipolCorr='None', relax_cell=True)
+        self.Ebulk1 = E / len(self.bulk1)
+        self.results.E_bulk1, self.results.miller1 = self.Ebulk1, tuple(cfg.miller1)
+        self.write(self.bulk1, "bulk1_opted")
+        twist = sigma = None
+        mil = "".join(str(i) for i in cfg.miller1)
+        if cfg.gb == "tilt":
+            gb, _, _ = symmetric_tilt_gb(self.bulk1, cfg.miller1, creps=cfg.creps1 if cfg.creps1 > 1 else 2,
+                                         expansion=cfg.gb_expansion)
+            name = "gb_tilt_%s" % mil
+        else:
+            m, n = cfg.gb_mn
+            gb, _, _, twist, sigma = twist_gb(self.bulk1, cfg.miller1, m, n, creps=cfg.creps1 if cfg.creps1 > 1 else 2)
+            name = "gb_twist_%s_S%d" % (mil, sigma)
+            _log("Twist boundary: Sigma%d, twist angle %.2f deg" % (sigma, twist))
+        _log("Bicrystal %s: %d atoms, in-plane cell %.2f x %.2f A" % (name, len(gb), *gb.cell.lengths()[:2]))
+        warn_clashes(gb, name)
+        gb.name = name
+        self.write(gb, name)
+        E_gb, gb = self.engine.run(gb, 'geom', name, dipolCorr='None', FixCell=False, FixVol=0, nosymm=1, KPgrid_=cfg.kpgrid)
+        self.write(gb, name + "_opted")
+        area = surf_area(gb)
+        g = gb_energy(E_gb, len(gb), self.Ebulk1, area) / 0.01   #eV/A^2 to eV/nm^2
+        self.report("gamma_GB (%s): %.2f eV/nm^2 = %.3f J/m^2\n" % (name, g, g * cfactor))
+        self.results.grain_boundaries.append(GBResult(name, cfg.gb, tuple(cfg.miller1), len(gb), float(E_gb), float(g), float(area),
+                                                      None if twist is None else float(twist), sigma))
+        return self.results
 
     # ------------------------------------------------------------------------------------------------ full run
-    def run(self, atoms1, atoms2):
-        """Run the full workflow for two bulk structures. Returns WorkflowResults (also written to <outdir>/results.json)."""
+    def run(self, atoms1, atoms2=None, atoms3=None):
+        """Run the full workflow for two bulk structures (a third one gives three-layer interfaces; with cfg.gb only
+        atoms1 is used, for a grain boundary). Returns WorkflowResults (also written to <outdir>/results.json)."""
         cfg = self.cfg
+        if atoms2 is None and not cfg.gb:
+            raise ValueError("run: a second bulk structure is needed (or set gb='tilt'/'twist' for a grain boundary)")
         backup_output(cfg.outdir)  #keep the previous output in <outdir>_prev
         self._outf = open(cfg.outfile, 'w')
         self._outf.write(time.strftime("%a %b %d %H:%M:%S %Z %Y") + "\n")
         t0 = time.time()
         try:
+            if cfg.gb:
+                self.run_gb(atoms1)
+                return self.results
             self.run_bulk(atoms1, atoms2)
             if cfg.check_surfaces:
                 self.screen_surfaces()
@@ -436,17 +663,27 @@ class InterfaceWorkflow:
             slabs1, slabs2 = self.build_slabs(1), self.build_slabs(2)
             self.results.slabs1 = self.compute_sfe(1, slabs1)
             self.results.slabs2 = self.compute_sfe(2, slabs2)
+            for n, scan in ((1, cfg.sfe_scan1), (2, cfg.sfe_scan2)):
+                if scan and not cfg.dry:
+                    self.scan_sfe(n, scan)
             sel1 = self.select_slabs(1, slabs1, self.results.slabs1)
             sel2 = self.select_slabs(2, slabs2, self.results.slabs2)
 
             if cfg.surf_only:
                 _log('Exiting code after the optimisation of the surface slabs')
             else:
-                for ci, slab1, _ in sel1:
-                    for cj, slab2, _ in sel2:
-                        res = self.run_pair(ci, slab1, cj, slab2)
+                for ci, slab1, r1 in sel1:
+                    for cj, slab2, r2 in sel2:
+                        res = self.run_pair(ci, slab1, cj, slab2, r1.sfe, r2.sfe)
                         if res is not None:
                             self.results.interfaces.append(res)
+                if atoms3 is not None:
+                    self.setup_material3(atoms3)
+                    for ci, slab1, _ in sel1:
+                        for cj, slab2, _ in sel2:
+                            res = self.run_trilayer(ci, slab1, cj, slab2, self.slab3)
+                            if res is not None:
+                                self.results.trilayers.append(res)
         finally:
             self._outf.close()
             self._outf = None
@@ -461,15 +698,25 @@ def config_from_args(args):
     def literal(text):
         return {k: float(v) for k, v in ast.literal_eval(text).items()} if text else None
     kpgrid = "1 1 1" if args.gamma_only else args.kpgrid
+
+    def scan(text):
+        if not text:
+            return None
+        parts = [p.strip() for p in text.split(",")]
+        if len(parts) != 4:
+            raise ValueError("--sfe_scan expects 'element,partner,dmu_min,dmu_max', e.g. 'Na,Cl,-1.0,0.0', got '%s'" % text)
+        return (parts[0], parts[1], float(parts[2]), float(parts[3]))
     return WorkflowConfig(
         miller1=tuple(args.miller1), miller2=tuple(args.miller2), creps1=args.creps1 or 1, creps2=args.creps2 or 1,
         surface1=args.surface1 or None, surface2=args.surface2 or None, sym_slabs1=args.symSlabs1, sym_slabs2=args.symSlabs2,
-        thickness=args.thickness, no_slabs=args.noSlabs, prim=args.prim, chem_pots1=literal(args.chem_pots1),
-        chem_pots2=literal(args.chem_pots2), decomps1=args.decomps1, decomps2=args.decomps2, passivate=args.pas,
+        thickness=args.thickness, sym_method=args.sym_method, no_slabs=args.noSlabs, prim=args.prim, chem_pots1=literal(args.chem_pots1),
+        chem_pots2=literal(args.chem_pots2), decomps1=args.decomps1, decomps2=args.decomps2,
+        sfe_scan1=scan(args.sfe_scan1), sfe_scan2=scan(args.sfe_scan2), passivate=args.pas,
         fix_layers=args.fix_layers, max_slab_dimension=args.max_slab_dimension, init_length=args.initLength,
         step_length=args.stepLength, percentage_tolerance=args.percentage_tolerance, flip2=args.flip2, vac_slab=args.vac_slab,
         vac_int=args.vac_int, sep=args.sep, niggli=args.niggli, check_surfaces=args.checkSurfs,
         miller_list=[tuple(m) for m in args.miller_list], conv_layers=args.convLayers, lay_min=args.lay_min, lay_max=args.lay_max,
         conv_sep=args.convSep, sep_init=args.sep_init, sep_final=args.sep_final, sep_step=args.sep_step, test_hori=args.test_hori,
-        hor_steps=tuple(args.hor_steps), kpgrid=kpgrid, zero_chem_pots=(args.prog == 'ase'), dry=args.dry, surf_only=args.surf_only,
-        outdir=args.outdir, outfile=args.outfile, view=args.view, verbose=args.verb)
+        hor_steps=tuple(args.hor_steps), test_opt=args.test_opt, topt_maxiter=args.topt_maxiter, minkowski=args.minkowski, kpgrid=kpgrid, zero_chem_pots=(args.prog == 'ase'), dry=args.dry, surf_only=args.surf_only,
+        miller3=tuple(args.miller3), creps3=args.creps3 or 1, sep2=args.sep2, gb=args.gb, gb_mn=tuple(args.gb_mn),
+        gb_expansion=args.gb_expansion, outdir=args.outdir, outfile=args.outfile, view=args.view, verbose=args.verb)

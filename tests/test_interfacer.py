@@ -42,7 +42,7 @@ def test_make_interface_gap_equals_sep():
 
 def _run(args, cwd, timeout=600):
     # the backward-compatible script; it uses src/ when the package is not installed
-    return subprocess.run([sys.executable, os.path.join(ROOT, "interfacer-new.py")] + args, cwd=cwd,
+    return subprocess.run([sys.executable, os.path.join(ROOT, "interfacer.py")] + args, cwd=cwd,
                           capture_output=True, text=True, timeout=timeout)
 
 

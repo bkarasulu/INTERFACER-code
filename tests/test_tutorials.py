@@ -18,7 +18,7 @@ def _copy(name, tmp_path):
 
 
 def _interfacer(args, cwd, timeout=1800):
-    cmd = [sys.executable, os.path.join(ROOT, "interfacer-new.py")] + args
+    cmd = [sys.executable, os.path.join(ROOT, "interfacer.py")] + args
     r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
     assert r.returncode == 0, r.stdout[-3000:] + r.stderr[-3000:]
     return r.stdout

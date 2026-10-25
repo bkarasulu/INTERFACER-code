@@ -25,9 +25,12 @@ Surface formation energy of slab2_cut0: 1.53 eV/nm^2 = 0.25 J/m^2      # Na(100)
 Misfit (mu) of slab1_cut0_aligned and slab2_cut0_aligned (after alignment): 3.73%
 convSep: Minimum-energy separation is 3.00 A
 W_ad (work of adhesion, 2 interface(s) in the cell) for the final optimised interface: 2.65 eV/nm^2 = 0.42 J/m^2
+gamma_int (interface energy = gamma_1 + gamma_2 - W_ad): 0.97 eV/nm^2 = 0.16 J/m^2
 ```
 
-For comparison, PBE gives about 0.22 J/m² for Na(100). W_ad (0.42 J/m²) is below the sum of the surface energies (0.58 J/m²), as it must be.
+The rigid separation scan finds its minimum at the initial 3.0 Å. The interface is then optimised at fixed cell, so this separation is kept. `analysis.ipynb` runs the tutorial and plots the scan and the structures.
+
+For comparison, PBE gives about 0.22 J/m² for Na(100). W_ad (0.42 J/m²) is below the sum of the surface energies (0.58 J/m²), as it must be. The difference is the interface energy, γ_int = 0.16 J/m².
 
 Results differ slightly between models; try `mlip_model = "medium-mpa-0"` or `"medium-omat-0"`. Validate important numbers with DFT (`prog = "vasp"`).
 

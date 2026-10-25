@@ -13,6 +13,7 @@ import ase.io
 from ase import Atom
 from ase.calculators.vasp import Vasp
 from ase.visualize import view as ase_view #'view' is shadowed by a keyword argument in call_vasp
+from ..log import debug, say, warn
 
 LDAU_L={'s':0,'p':1,'d':2,'f':3} #orbital -> LDAUL value
 
@@ -21,7 +22,7 @@ def _ldau_lists(asyms,hubU):
     ldauu=[];ldaul=[]
     for at in asyms:
         if at in hubU:
-            if len(hubU[at].keys())>1: print("WARNING: cannot set multiple U values for the same atom type (%s), setting to 0... "%at);ldauu.append(0);ldaul.append(0);continue
+            if len(hubU[at].keys())>1: warn("WARNING: cannot set multiple U values for the same atom type (%s), setting to 0... "%at);ldauu.append(0);ldaul.append(0);continue
             orb="".join(hubU[at].keys()).lower()
             if orb not in LDAU_L: raise ValueError("Hubbard U: unknown orbital '%s' for %s (use s, p, d or f)."%(orb,at))
             ldauu.append(float(hubU[at][orb] if orb in hubU[at] else list(hubU[at].values())[0]))
@@ -47,7 +48,7 @@ def handle_magmoms(atoms, magmoms):
         }
     """
     if magmoms is None:   return atoms
-    else: print("Magnetic moments are set with ASE: %s"%magmoms)
+    else: say("Magnetic moments are set with ASE: %s"%magmoms)
     
     elements = magmoms[::2]
     values = magmoms[1::2]
@@ -92,7 +93,7 @@ def make_potcar(xc="potpaw_PBE",elements=None,wDir='./'):
     vasppp = os.environ.get('VASP_PP_PATH')
     if not vasppp: raise EnvironmentError("VASP_PP_PATH is not defined, but needed for VASP calculation setup.")
 
-    print('Making potcar using %s'%vasppp);stdout.flush();
+    say('Making potcar using %s'%vasppp);stdout.flush();
 
 
     if elements==None:#Try to read it from POSCAR if not explicitly given.
@@ -114,7 +115,7 @@ def vasp_continue(ifDel=0):
                 if m: ind=max(ind,int(m.group(1))) #RUN10 was previously read as RUN0
 
         run="RUN%d"%(ind+1)
-        print ("Previous data stored in %s."%run)
+        say("Previous data stored in %s."%run)
         os.makedirs(run,exist_ok=True)
         for fn in listdir("."):
                 if os.path.isfile(fn): shutil.copy2(fn,run)
@@ -141,7 +142,7 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
                else: exe = "vasp_std > vasp.out"
         #exe="mpirun -np 128 ~/APPS/vasp.5.4.4/bin/vasp_std > vasp.out&"
         os.environ['VASP_COMMAND']=exe
-        print("VASP command: ", exe) #, os.environ['VASP_COMMAND'])
+        say("VASP command: ", exe) #, os.environ['VASP_COMMAND'])
 
         cwd=os.getcwd()
 
@@ -170,34 +171,26 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
                 if at.symbol not in asyms:asyms.append(at.symbol)
 
         if 1 and os.path.exists('OUTCAR'):
-                print("A previous calculation found in %s"%name)
-                print(getcwd())
+                say("A previous calculation found in %s"%name)
+                debug(getcwd())
                 restart=True
 
         try: 
                 calc = Vasp(atoms,restart=restart, directory="./", label='vasp', command=exe, txt=None) #ignore_bad_restart_file=False,
-                if restart: print ("Previous run was read successfully, checking if converged...")
+                if restart: say("Previous run was read successfully, checking if converged...")
         except Exception: #if restarting fails
-                print("Problem with restarting from the previous run. Starting a new calculation.")
+                say("Problem with restarting from the previous run. Starting a new calculation.")
                 calc = Vasp(atoms,restart=None, directory="./", label='vasp', command=exe, txt=None);restart=False
 
         if restart: #if restarted no need to assign the variables and use the ones read from INCAR and OUTCAR by ASE.
                 import ase, ase.io
                 if Vasp.read_convergence(calc):#calc.converged:#read_convergence('OUTCAR'):
-                        print ("Calculation has converged, reading data from vasprun.xml/OUTCAR... ")
+                        say("Calculation has converged, reading data from vasprun.xml/OUTCAR... ")
                         try:atoms=ase.io.read('vasprun.xml',index=-1)
                         except:atoms=ase.io.read('OUTCAR',index=-1)
                 else:
                         #Standard ASE impletation for VASP-restart does not read the last geom for some reason, this is a simple trick to get the CONTCAR and same settigns from the prevoious run.
-                        print ("Not converged, restarting from last point")
-                        # #atoms=ase.io.read('CONTCAR') #no energy so must be repeated.
-                        # #atoms.calc=calc
-                        # vasp_continue() #copies prev. run  files into RUNX folder.
-                        # #atoms.write('POSCAR',format='vasp',vasp5=1)
-                        # #calc = Vasp(atoms,restart=restart, directory="./", label='vasp', command=exe, txt=None) #ignore_bad_restart_file=False,
-                        # calc = Vasp(restart=True)
-                        # #atoms.calc=calc
-                        # atoms = calc.get_atoms()
+                        say("Not converged, restarting from last point")
 
                         #The settings of the previous run are kept by reading its INCAR (and KPOINTS), and the run
                         #is continued from the last geometry (CONTCAR) rather than the initial one (POSCAR).
@@ -205,7 +198,7 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
                         calc.read_incar(filename='INCAR')
                         if os.path.exists('KPOINTS'):
                                 try: calc.read_kpoints(filename='KPOINTS')
-                                except Exception as err: print("Could not read KPOINTS from the previous run:",err)
+                                except Exception as err: say("Could not read KPOINTS from the previous run:",err)
                         vasp_continue()
                         if os.path.exists("CONTCAR") and os.path.getsize("CONTCAR")>0: atoms=ase.io.read("CONTCAR",format="vasp")
                         else: atoms=ase.io.read("POSCAR",format="vasp")
@@ -222,14 +215,6 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
                 return E,atoms
 
 
-        #Read INCAR file if requested/provided:
-        # if readINCAR:
-        #         try:
-        #              print('Reading ./INCAR '); calc.read_incar(filename='INCAR')
-        #         except:
-        #               print('Reading ../INCAR '); calc.read_incar(filename='../INCAR')
-        #         else:
-        #               print("INCAR file can't be read from ./ or ../")
  
         if typ.lower()=='geom':IBRION=2 #CG algo
         elif typ.lower()=="sp": IBRION=-1;nsw=0
@@ -261,10 +246,10 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
                 #so VASP interpreted them as Cartesian coordinates.
                 calc.set(kpts=kpgrid)
                 if kpgrid==[1,1,1]: 
-                        print ("VASP gamma-only implementation (vasp_gam) is activated.")
+                        say("VASP gamma-only implementation (vasp_gam) is activated.")
                         cmd=_vasp_cmd(exe,'gam')
                 else:
-                        print ("Multiple KPOINTS: VASP standard implementation (vasp_std) is activated.")
+                        say("Multiple KPOINTS: VASP standard implementation (vasp_std) is activated.")
                         cmd=_vasp_cmd(exe,'std')
 
                 calc.command=cmd
@@ -272,7 +257,7 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
 
         elif KPspacing: 
                 calc.set(kspacing=KPspacing,kgamma=bool(gamma))#calc.cell.kpoints_mp_spacing = str(KPspacing) #default=0.05 2*pi/A
-                print ("Multiple KPOINTS: VASP standard implementation (vasp_std) is activated.")
+                say("Multiple KPOINTS: VASP standard implementation (vasp_std) is activated.")
                 cmd=_vasp_cmd(exe,'std')
                 calc.command=cmd
         
@@ -329,7 +314,7 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
                 #Get the valance electron for each atom type from corr. POTCAR file (ZVAL)
 
 
-                from ase.neighborlist import NeighborList, neighbor_list
+                from ase.neighborlist import neighbor_list
 
                 #ASEs neighborlist class has bugs, it counts number of coordination/neighbors for atoms located at the 0.0, 0.5 and 1.0 in fractional coordinates (a,b,c does not matter) !! Use rdf calculation instead. Actually this is a bug in natural_cutoff which cannot capture the different oxidation states of e.g. Fe. It's defined too short for capturing Fe6+.
                 #natural_cutoff of ASE does not work properly for finding the orrect no of neighbours.
@@ -338,31 +323,23 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
                         for asym2 in asyms:
                                 key=(asym,asym2)
                                 if key not in cov_cutoff: cov_cutoff[key]=(cov_radii[asym]+cov_radii[asym2])*1.1
-                if 0: #This does not work properly as one cannot deine the pair distances explicitly for each atom type pair, instead a radius defiend for each atom type (so same as natural_cutoffs) . USE neighbour_list instead.
-                        #nl = NeighborList(cutoffs=natural_cutoffs(atoms), skin=0.3, sorted=False, self_interaction=0, bothways=1)
-                        #nl = NeighborList(cutoffs=cov_cutoff, skin=0.3, sorted=False, self_interaction=0, bothways=1)
-                        nl = NeighborList(cutoffs=[cov_radii[at.symbol] for at in atoms], skin=0.3, sorted=False, self_interaction=0, bothways=1)
-                        nl.update(atoms)
-                        #print(nl.npbcneighbors)
-                        coord=[]
-                        for at in atoms:   coord.append(len(nl.get_neighbors(at.index)[0]))
-                else:  # bothways is on by default in this. This works well. #THIS DOES NOT WORK WELL EITHER, USE OVITO ISNTEAD (GIVES THE BEST RESULTS).
-                        i,j=neighbor_list('ij',atoms,cutoff=cov_cutoff)#natural_cutoffs(atoms)) #there is a bug for determining the neighbours for atoms located at the origin. #i: index of the central atom, j: index of the neighbour.
-                        coord = np.bincount(i,minlength=len(atoms)) #no of neighbours of each atom (also those without neighbours)
+                #Neighbour list with pair-specific cutoffs (ASE's NeighborList only supports one radius per atom).
+                i,j=neighbor_list('ij',atoms,cutoff=cov_cutoff)#natural_cutoffs(atoms)) #there is a bug for determining the neighbours for atoms located at the origin. #i: index of the central atom, j: index of the neighbour.
+                coord = np.bincount(i,minlength=len(atoms)) #no of neighbours of each atom (also those without neighbours)
 
-                        #The dictionary of neighbour types for each atom index (every atom has an entry).
-                        ntypes={str(k):[] for k in range(len(atoms))}
-                        for k in range(len(i)): ntypes[str(i[k])].append(atoms[j[k]].symbol)
+                #The dictionary of neighbour types for each atom index (every atom has an entry).
+                ntypes={str(k):[] for k in range(len(atoms))}
+                for k in range(len(i)): ntypes[str(i[k])].append(atoms[j[k]].symbol)
 
-                        for k in sorted(ntypes.keys()): 
-                                #k =int(k)
-                                print (k,ntypes[k],coord[int(k)])
-                        #print (sorted(ntypes))
+                for k in sorted(ntypes.keys()): 
+                        #k =int(k)
+                        debug(k,ntypes[k],coord[int(k)])
+                #print (sorted(ntypes))
                   
-                        #unique, counts = np.unique(ntypes.values(), return_counts=True)
-                        #print(unique, counts)
+                #unique, counts = np.unique(ntypes.values(), return_counts=True)
+                #print(unique, counts)
 
-                print(coord,len(coord))
+                debug(coord,len(coord))
 
                 #exit()
    
@@ -398,9 +375,9 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
                         if not flag:
                                 layers[zc]=[i]
 
-                for key in sorted(layers.keys()):                     print (key,layers[key])
+                for key in sorted(layers.keys()):                     debug(key,layers[key])
                 layers=[layers[key] for key in sorted(layers.keys())]
-                print (layers)
+                debug(layers)
 
                 #Determine the matching top and layers for ensuring symmetric slab termination
                 #Move layer determination to  a function.
@@ -416,7 +393,7 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
                                         pos1=atoms[lay1[k]].position  ; pos2=atoms[lay2[k]].position
                                         if abs(pos1[0]-pos2[0]) > tol or abs(pos1[1]-pos2[1]) > tol: break#layers do not match.
                                 else:
-                                        print ("Layer #%d matches layer #%d"%(i,j))
+                                        debug("Layer #%d matches layer #%d"%(i,j))
 
 
                 #Max occurence of coordination no for a given atom type can also be used, instead of avg coord no.
@@ -441,7 +418,7 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
                             if val>8: val-=8
                             valance[aty]=val
                             dangling[aty]=val/common_crd[aty]
-                            print (aty,common_crd[aty],common_ntypes[aty],valance[aty],dangling[aty])
+                            debug(aty,common_crd[aty],common_ntypes[aty],valance[aty],dangling[aty])
                             
                     data=common_crd
                 else:
@@ -456,7 +433,7 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
 
                     for key in asyms: #atom types; 
                             data[key]=data[key]/float(len([at for at in atoms if at.symbol==key]))
-                            print (key,data[key])
+                            debug(key,data[key])
 
                 scpos=atoms.get_scaled_positions()
                 undercoord=[]; overcoord=[]; normal=[]
@@ -466,9 +443,9 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
                         else:normal.append(i)
                         #print (i,at.symbol,at.position,scpos[i],coord[i])
 
-                print ("Undercoordinated:",undercoord)
-                print("Overcoordinated: ",overcoord)
-                print("Standard coordination:",normal)
+                debug("Undercoordinated:",undercoord)
+                debug("Overcoordinated: ",overcoord)
+                debug("Standard coordination:",normal)
                 #print(len(bin_edges))
 
                 #Decide on which layers to passivate (top or bottom)
@@ -484,7 +461,7 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
                                 at=atoms[i]
                                 crd=coord[i]
 
-                                print (at,crd, sl)
+                                debug(at,crd, sl)
 
                                 Hcnt+=1
                                 offset=(cov_radii[at.symbol]+cov_radii['H'])*1.0
@@ -500,52 +477,16 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
                                         for cc in c1:
                                                 if c ==cc: flag=1;c1.remove(cc);break
                                         if not flag: missing.append(c);zval+=dangling[at.symbol]
-                                print ("Missing atoms: %s No of e- on pseudohydrogen: %.1f "%(missing,zval))
+                                debug("Missing atoms: %s No of e- on pseudohydrogen: %.1f "%(missing,zval))
                                 setups[len(atoms)-1]='H%.1f'%zval #when applied the added pseuodo-H atom is moved to the top of the atom list. 
                                 #this can be done alltogether to prevent fractioning of the pseudohydrogens and limit number of atom enetries in POSCAR.
                                 #print (setups)
 
 
-                """
-                #Using zcoords histogram.
-                #Decide on which layers to passivate (top or bottom)
-                if passivate.lower()=="bot":slayers=[1,2,3] #bin numbering starts from 1 
-                elif passivate.lower()=="top":slayers=[len(bin_edges)-1, len(bin_edges)-2,len(bin_edges)-3]
-
-                Hcnt=0
-                for i in undercoord: #can be combined with the above atoms loop.
-                        at=atoms[i]
-                        crd=coord[i]
-                        for j,be in enumerate(bin_edges): #Zcoord histogram.
-                                if at.position[2] <be:
-                                        if j  in slayers: #This check is needed for avaoiding passivation of  a defect in the middle of the slab rather than the surface, and passivating only the target surface.
-                                                #TODO:check fro clashes with already-existing  atoms.
-                                                print (at,crd, j)
-                                                Hcnt+=1
-                                                offset=(cov_radii[at.symbol]+cov_radii['H'])*1.0
-                                                if passivate.lower()=='top': offset=-offset
-                                                atoms.extend(Atom("H",(at.position[0],at.position[1],at.position[2]-offset)))
-                                                #Determine the amont of missing e-.
-                                                missing=[];zval=0.0
-                                                c1=deepcopy(ntypes[str(i)])
-                                                c2=deepcopy(common_ntypes[at.symbol])
-                                                
-                                                for c in c2:
-                                                        flag=0
-                                                        for cc in c1:
-                                                                if c ==cc: flag=1;c1.remove(cc);break
-                                                        if not flag: missing.append(c);zval+=dangling[at.symbol]
-                                                print ("Missing atoms: %s No of e- on pseudohydrogen: %.1f "%(missing,zval))
-                                                setups[len(atoms)-1]='H%.1f'%zval #when applied the added pseuodo-H atom is moved to the top of the atom list.
-                                                #print (setups)
-                                        else:
-                                                print ('other surface:',at,crd, j)
-                                        break
-                """
-                print (setups)
+                debug(setups)
                 calc.set(setups=setups)
-                print ("\nAdded %d (pseudo)hydrogens to saturate the dangling bonds."%Hcnt)
-                print(atoms)
+                say("\nAdded %d (pseudo)hydrogens to saturate the dangling bonds."%Hcnt)
+                debug(atoms)
                 #atoms=ase.build.sort(atoms)
                 #atoms.sort()
                 if view:ase_view(atoms)
@@ -558,7 +499,7 @@ def call_vasp(atoms,calc=None, typ="sp",xc='PBE',
 
         if dry: #do not run VASP calculation; write the input files (if possible) for checking.
                 try: calc.write_input(atoms)
-                except Exception as err: print("call_vasp (dry run): could not write all VASP input files in %s: %r"%(wDir,err))
+                except Exception as err: say("call_vasp (dry run): could not write all VASP input files in %s: %r"%(wDir,err))
                 atoms.calc=None #no energy available; prevents an accidental VASP run later on
                 chdir(cwd)
                 return 0.0,atoms
@@ -587,15 +528,15 @@ def call_vasp_v2(fname='',exe=None,xc='pbe',mgms=None,hubU=None,makepotcar=0,pot
     if not exe: exe='vasp_std'
     
     os.environ['VASP_COMMAND']=exe
-    print("VASP command: ", exe) #, os.environ['VASP_COMMAND'])
+    say("VASP command: ", exe) #, os.environ['VASP_COMMAND'])
 
     cwd=os.getcwd()
 
     seed=fname.split('.')[0]
     try:chdir(seed)
-    except Exception:print('Cannot change to %s directory, using %s instead'%(seed,cwd))
+    except Exception:say('Cannot change to %s directory, using %s instead'%(seed,cwd))
 
-    print('Working dir: %s'%getcwd());stdout.flush();
+    say('Working dir: %s'%getcwd());stdout.flush();
 
     if not os.path.exists('POTCAR') or makepotcar: make_potcar(xc=potcarxc,wDir='.')
 
@@ -603,14 +544,14 @@ def call_vasp_v2(fname='',exe=None,xc='pbe',mgms=None,hubU=None,makepotcar=0,pot
     try:
         calc = Vasp(restart=True)
         atoms = calc.get_atoms()
-        print ("\nVASP run was read succesfully from OUTCAR.")
-        if Vasp.read_convergence(calc): print('Geom opt already converged...')
+        say("\nVASP run was read succesfully from OUTCAR.")
+        if Vasp.read_convergence(calc): say('Geom opt already converged...')
         else:
-            print('Geom opt not converged; running a continuation job...')
+            say('Geom opt not converged; running a continuation job...')
             flag=1
 
     except:
-        print ("VASP run could not be read, starting a new run...")
+        say("VASP run could not be read, starting a new run...")
         flag=1
 
     if flag:

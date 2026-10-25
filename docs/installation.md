@@ -11,7 +11,7 @@ python -m pytest                                       # ~15 s; no DFT code need
 interfacer --version
 ```
 
-The `-e` (editable) install keeps the package linked to the source tree. The `interfacer` command is installed, and `python interfacer-new.py` works too, even without installing.
+The `-e` (editable) install keeps the package linked to the source tree. The `interfacer` command is installed, and `python interfacer.py` works too, even without installing.
 
 !!! tip "conda"
     With conda, install the scientific stack from conda-forge first and the package afterwards:

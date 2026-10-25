@@ -10,7 +10,8 @@ import numpy as np
 from ase import Atoms
 from pymatgen.core.surface import SlabGenerator
 from pymatgen.io.ase import AseAtomsAdaptor
-from spglib import get_symmetry
+from .log import debug, say, warn
+from .symmetry import symmetry_rotations
 
 #Surface creation and alignment tool by James P. Darby.
 #This is the former join8.py
@@ -21,8 +22,15 @@ def calc_R1(x1,y1):
     u = np.cross(x1,y1)
 
     tol = 0.001
-    if np.linalg.norm(u) < tol:
-            return Id
+    if np.linalg.norm(u) < tol*np.linalg.norm(x1)*np.linalg.norm(y1):
+            if np.dot(x1,y1) > 0:
+                    return Id
+            #antiparallel: rotate by 180 degrees about an axis perpendicular to x1 (previously no rotation was done, so
+            #slabs with the surface normal along -z kept it and the second slab was stacked below the first one)
+            axis = np.cross(x1,[1,0,0])
+            if np.linalg.norm(axis) < tol*np.linalg.norm(x1): axis = np.cross(x1,[0,1,0])
+            axis = axis/np.linalg.norm(axis)
+            return 2*np.outer(axis,axis) - Id
 
     sin_th = np.linalg.norm(u)/(np.linalg.norm(x1)*np.linalg.norm(y1))
     cos_th = np.dot(x1,y1)/(np.linalg.norm(x1)*np.linalg.norm(y1))
@@ -45,6 +53,25 @@ def rotate_slab(slab):
     slab.cell[1] = np.dot(R1,e)
     slab.cell[2] = np.dot(R1,f)
     slab.set_scaled_positions(frac_pos)
+    return slab
+
+def orient_up(slab, wrap=True):
+    """Orient a slab so that the surface normal (a x b) and c point along +z, keeping a right-handed cell.
+
+    If c points down after rotating the normal to +z, -c (an equivalent lattice vector) is used; the atoms keep their
+    Cartesian positions and are wrapped along c (wrap=True, periodic cells as from make_slab) or shifted into the cell
+    (wrap=False, slabs with vacuum)."""
+    slab = rotate_slab(slab)
+    if slab.cell[2][2] < 0:
+        cell = slab.cell[:].copy()
+        cell[2] = -cell[2]
+        slab.set_cell(cell, scale_atoms=False)
+        sp = slab.get_scaled_positions(wrap=False)
+        if wrap:
+            sp[:, 2] %= 1.0
+        else:
+            sp[:, 2] -= np.floor(sp[:, 2].min())
+        slab.set_scaled_positions(sp)
     return slab
 
 def lcm(a,b):
@@ -136,129 +163,21 @@ def wrap_coords(slab):
     slab.set_scaled_positions(sp)
     return slab
 
-### Code for symmetric surfaces ###
-# Code for symmetric surfaces by Julian Holland: https://github.com/julianholland/Symmetric-Surface-Finder
-
-# def find_smallest_sym_surface(surf, surface_layers, vacuum, position_accuracy):
-#     """For any given surface this function will produce a symmetric surface should one exist"""
-#     cell = surf.cell  # find cell parameters
-#     frac_cell_value = (
-#         ((cell[2, 2] - 2 * vacuum) * surface_layers) / (surface_layers + 1)
-#     ) + vacuum  # find a value for minimum space we want to explore for this cut
-#     z_coords = surf.positions[:, 2]  # create list of all z-coords
-#     unique_surfaces = np.unique(
-#         z_coords.round(decimals=position_accuracy)
-#     )  # find all unique cuts
-#     mask = (
-#         unique_surfaces > frac_cell_value)  # find unique cuts for region we wish to explore
-#     frac_unique_surfaces = unique_surfaces[mask]
-#     for i in range(len(frac_unique_surfaces)):
-#         mask = z_coords < frac_unique_surfaces[i]
-#         new_surf = surf[mask]
-#         new_surf.center()
-#         rotational_symmetry = get_symmetry(new_surf, symprec=1e-5)["rotations"]
-#         z_rotational_operations = np.stack(rotational_symmetry)
-#         if np.any(z_rotational_operations[:, 2, 2] == -1):
-#             sym_surf = new_surf
-#             sym_surf.center(vacuum=vacuum, axis=2)
-#             break
-#         else:
-#             sym_surf = False
-#     return sym_surf
-
-# def make_surface(thickness, miller_plane, bulk, vacuum):
-#     """Create a surface with 10 angstrom of vacuum provided a bulk, miller plane and layer thickness"""
-#     surf = surface(bulk, miller_plane, thickness)
-#     surf.center(vacuum=vacuum, axis=2)  # centre the surface and add vacuum
-#     single_layer_z_length = (surf.cell[2, 2] - (2 * vacuum)) / thickness
-#     return surf, single_layer_z_length
-
-# def permute_surface(bulk, miller_plane, minimum_thickness, vacuum):
-#     """Permutes a given surface for all unique z-axis coordinates and creates an xyz file"""
-#     position_accuracy = 5  # modify this depending on how accurate your atomic measurements are. A higher value generally gives more surfaces as less atoms lie on the 'same' z-plane
-#     surface_layers = 0
-#     nudge = 10 ** (-1 * position_accuracy)
-#     dummy_surf, single_cell_z_length = make_surface(1, miller_plane, bulk, vacuum) # get the single cell value with vacuum
-#     min_thick_w_buffer = minimum_thickness  # add a buffer to make it more likely that we don't go less than the desired minimum thickness
-#     thickness_check=0
-#     while thickness_check <= min_thick_w_buffer: # create a sufficiently thick surface
-#         surface_layers += 1
-#         surf, single_cell_z_length = make_surface(
-#             thickness=(surface_layers + 2),
-#             miller_plane=miller_plane,
-#             bulk=bulk,
-#             vacuum=vacuum,
-#         )
-#         thickness_check = ((single_cell_z_length) * (surface_layers))
-
-#     z_coords = surf.positions[:, 2]  # create list of all z-coords
-#     unique_surfaces = np.unique(
-#         z_coords.round(decimals=position_accuracy)
-#     )  # create list of all unique z coordinates
-#     mask = unique_surfaces < single_cell_z_length + vacuum
-#     single_cell_unique_surfaces = unique_surfaces[mask]
-#     surf_list = []
-#     surf_lengths_list = []
-#     print(
-#         "There are "
-#         + str(len(single_cell_unique_surfaces))
-#         + " unique surface cuts for the "
-#         + str(miller_plane)
-#         + " miller plane. One layer of this surface is "
-#         + str(single_cell_z_length.round(position_accuracy))
-#         + " Angstrom thick"
-#     )
-#     for i in tqdm(range(len(single_cell_unique_surfaces))):
-#         # define where we cut the surface on the left hand side
-#         surf_cut = (unique_surfaces[i] + nudge) 
-#         # integer value of number of unique values required to maintain minimum thickness
-#         ensure_thickness = int(i + (((surface_layers + 2 - 1) / (surface_layers + 2) ) * len(unique_surfaces))) 
-#         # define where we cut the surface on the right hand side
-#         surf_term = (unique_surfaces[ensure_thickness] + nudge)  
-#         # create T/F matrix for appropriate slice
-#         newmask = (z_coords > surf_cut) & (z_coords < surf_term)  
-#         cut_surf = surf[newmask]  # apply mask to surface
-#         cut_surf.center(vacuum=vacuum, axis=2)  # centre and keep vacuum the same
-
-#         # find symmetric surfaces
-#         sym_surf = find_smallest_sym_surface(
-#             cut_surf, surface_layers, vacuum, position_accuracy)  
-#         if sym_surf == False:
-#             continue
-#         surf_lengths_list.append(sym_surf.cell[2, 2] - (2 * vacuum))
-#         if check_surf_unique(surf_list, sym_surf, position_accuracy) > 0:
-#             continue
-#         surf_list.append(sym_surf)
-#     if len(surf_list) == 0:
-#         print("Found no symmetric structures for this Miller plane.\n")
-#     else:
-#         print(
-#             "Found "
-#             + str(len(surf_list))
-#             + " unique, symmetric surfaces for "
-#             + str(miller_plane)
-#             + " between "
-#             + str(min(surf_lengths_list).round(decimals=position_accuracy))
-#             + " and "
-#             + str(max(surf_lengths_list).round(decimals=position_accuracy))
-#             + " Angstrom thick ("
-#             + str(surface_layers)
-#             + " to "
-#             + str(surface_layers + 1 )
-#             + " layers thick)"
-#             + "\n" 
-#         )
-#     return surf_list
-
-def permute_surface(bulk_ase, miller_plane, minimum_thickness, vacuum):
-    """Creates a symmetric surface using pymatgen's SlabGenerator.
+def permute_surface(bulk_ase, miller_plane, minimum_thickness, vacuum, method="pymatgen"):
+    """Creates all unique symmetric surface slabs (both surfaces equivalent; generally non-stoichiometric).
     Args:
         bulk_ase (ase.Atoms): The bulk structure in ASE format.
         miller_plane (tuple): The Miller indices of the surface.
         minimum_thickness (float): The minimum thickness of the slab.
         vacuum (float): The vacuum size to add to the slab. 
+        method (str): 'pymatgen' (SlabGenerator.nonstoichiometric_symmetrized_slab, default) or 'internal'
+            (INTERFACER's own implementation, see symmetric_slabs).
     Returns:
         list: A list of unique, symmetric surfaces in ASE format."""
+    if method == "internal":
+        return symmetric_slabs(bulk_ase, miller_plane, minimum_thickness, vacuum)
+    if method != "pymatgen":
+        raise ValueError("permute_surface: method must be 'pymatgen' or 'internal', got '%s'" % method)
 
     position_accuracy = 5
 
@@ -292,9 +211,9 @@ def permute_surface(bulk_ase, miller_plane, minimum_thickness, vacuum):
                     continue
                 surf_list.append(sym_slab_ase)
     if len(surf_list) == 0:
-        print("Found no symmetric structures for this Miller plane.\n");stdout.flush()
+        say("Found no symmetric structures for this Miller plane.\n");stdout.flush()
     else:
-        print(f"Found {str(len(surf_list))} unique, symmetric surfaces for {str(miller_plane)} \n");stdout.flush()
+        say(f"Found {str(len(surf_list))} unique, symmetric surfaces for {str(miller_plane)} \n");stdout.flush()
         
     return surf_list
 
@@ -307,7 +226,70 @@ def standardise_slab(slab):
     slab = rotate_slab(slab)
     if np.dot(slab.cell[2],np.cross(slab.cell[0],slab.cell[1])) < 0:
         slab = flip_handedness(slab)
-    return slab
+    return orient_up(slab, wrap=False) #surface normal and c along +z (vacuum slab: atoms shifted, not wrapped)
+
+def atomic_planes(slab, tol=0.3):
+    """Group the atoms of a slab into planes along the surface normal (a x b).
+    Atoms whose heights differ by less than tol (A) from the lowest atom of a plane belong to that plane.
+    Returns (list of index arrays from bottom to top, plane heights)."""
+    normal = np.cross(slab.cell[0], slab.cell[1])
+    normal = normal / np.linalg.norm(normal)
+    h = slab.positions @ normal
+    order = np.argsort(h)
+    planes, heights = [], []
+    for i in order:
+        if planes and h[i] - heights[-1] < tol:
+            planes[-1].append(int(i))
+        else:
+            planes.append([int(i)]); heights.append(h[i])
+    return [np.array(p) for p in planes], np.array(heights)
+
+
+def is_symmetric_slab(slab, symprec=1e-3):
+    """True if the two surfaces of a slab are equivalent, i.e. its symmetry contains an operation that maps the surface
+    normal onto itself reversed (inversion, a mirror plane parallel to the surface or a two-fold axis in the surface)."""
+    rot = symmetry_rotations(slab, symprec=symprec)
+    if rot is None:
+        return False
+    return bool(np.any(np.asarray(rot)[:, 2, 2] == -1))
+
+
+def symmetric_slabs(bulk, miller, minimum_thickness, vacuum, plane_tol=0.3, symprec=1e-3, max_extra=2):
+    """INTERFACER's own generator of symmetric surface slabs (no pymatgen).
+
+    A thick slab is cut along the Miller plane (make_slab) and its atoms are grouped into planes. Every plane within one
+    bulk repeat along the normal is tried as bottom termination; for each, the slab is extended plane by plane until it
+    is at least `minimum_thickness` thick and both surfaces are equivalent (is_symmetric_slab), up to `max_extra` further
+    bulk repeats. Unique slabs (check_surf_unique) are returned with `vacuum` on both sides, surface normal along z.
+    The slabs are in general non-stoichiometric: their stability is compared with surface formation energies.
+    """
+    one = make_slab(tuple(miller), bulk, repeat=(1, 1, 1))
+    planes1, _ = atomic_planes(one, plane_tol)
+    d_rep = abs(np.dot(one.cell[2], np.cross(one.cell[0], one.cell[1]) / np.linalg.norm(np.cross(one.cell[0], one.cell[1]))))
+    nrep = int(np.ceil(minimum_thickness / d_rep)) + max_extra + 2
+    thick = make_slab(tuple(miller), bulk, repeat=(1, 1, nrep))
+    planes, heights = atomic_planes(thick, plane_tol)
+    n_per_rep = len(planes1)
+    found = []
+    for i in range(min(n_per_rep, len(planes))):
+        for j in range(i + 1, len(planes)):
+            if heights[j] - heights[i] < minimum_thickness:
+                continue
+            if heights[j] - heights[i] > minimum_thickness + (max_extra + 1) * d_rep:
+                break
+            idx = np.concatenate(planes[i:j + 1])
+            cand = standardise_slab(thick[idx])
+            cand.center(vacuum=vacuum, axis=2)
+            if is_symmetric_slab(cand, symprec):
+                if check_surf_unique(found, cand, 5) == 0:
+                    found.append(cand)
+                break  # the thinnest symmetric slab for this termination
+    if found:
+        say("Found %d unique, symmetric surfaces for %s (internal generator)\n" % (len(found), str(tuple(miller))))
+    else:
+        say("Found no symmetric structures for this Miller plane (internal generator).\n")
+    return found
+
 
 def slab_thickness(slab):
     """Thickness of a slab (in A), i.e. the extent of the atomic positions along the surface normal (a x b)."""
@@ -337,10 +319,9 @@ def check_surf_unique(surf_list, surf, position_accuracy):
         if surf_list[i].get_chemical_formula(
             mode="metal", empirical=False
         ) == surf.get_chemical_formula(mode="metal", empirical=False):
-            new_surf_sym = get_symmetry((surf.cell, surf.get_scaled_positions(), surf.get_atomic_numbers()), symprec=symprec)
-            old_surf_sym = get_symmetry((surf_list[i].cell, surf_list[i].get_scaled_positions(), surf_list[i].get_atomic_numbers()), 
-                                        symprec=symprec)
-            if _rotation_set(old_surf_sym["rotations"]) == _rotation_set(new_surf_sym["rotations"]):
+            new_rot = symmetry_rotations(surf, symprec=symprec)
+            old_rot = symmetry_rotations(surf_list[i], symprec=symprec)
+            if new_rot is not None and old_rot is not None and _rotation_set(old_rot) == _rotation_set(new_rot):
                 return 1
             else:
                 continue
@@ -365,7 +346,7 @@ def make_slab(miller, atoms,repeat=(1,1,1),square=False):
     #maintains a3.(0,0,1) > 0
     if np.dot(slab.cell[2],np.cross(slab.cell[0],slab.cell[1])) < 0:
         slab = flip_handedness(slab)
-    return slab
+    return orient_up(slab, wrap=True) #surface normal and c along +z (the slab cell is periodic along c)
 
 def square_slab(slab):
     #now set f perpendicular to surface, means can't make it thicker any more!
@@ -588,7 +569,7 @@ def match_angles2(slab1_cell, angles1, slab2_cell, angles2, ptol, Lmax):
     matches = sorted(matches,key=lambda a_entry: a_entry[0])
             
     def filter_matches(matches):
-        print ("selecting best match based on Area and sin(theta) from {} choices".format(len(matches)))
+        debug("selecting best match based on Area and sin(theta) from {} choices".format(len(matches)))
         A = matches[0][0]
         stheta = np.sin(matches[0][1])
         best  = matches.pop(0)
@@ -688,7 +669,7 @@ def atom_density_check(atoms,slab):
     pd = abs((ri-rf)/ri*100)
     if pd > 10.0: #10**-4:
         #print ("number density of slab has changed by {:.2} percent".format(pd))
-        print ("number density of slab has changed by %%%.2f"%(pd))
+        warn("number density of slab has changed by %%%.2f"%(pd))
         #print ("exiting due to change in atom density...")
 
 def find_commensurate_supercell(slab1,slab2,L,Lmax,Lstep,ptol):
@@ -698,10 +679,10 @@ def find_commensurate_supercell(slab1,slab2,L,Lmax,Lstep,ptol):
     choice = None
 
     while L <= Lmax and success == False:
-        print ("trying with L = %.2f A"%L)
+        debug("trying with L = %.2f A"%L)
         angles2 = reasnoble_slab_angles(Lmax=L,slab=slab2)
         angles1 = reasnoble_slab_angles(Lmax=L,slab=slab1)    
-        print ("comparing {} possible pairs".format(len(angles1)*len(angles2))    )
+        debug("comparing {} possible pairs".format(len(angles1)*len(angles2))    )
         #angles contains all pairs of cell vectors where both are shorter than Lma
         if len(angles1) > 0 and len(angles2) > 0:
             try:
@@ -740,22 +721,74 @@ def slab_aligner(slab1,slab2,L,Lmax,Lstep,ptol,thickness,atoms1,atoms2):
         
         return slab1,slab2
 
-#NOT NEEDED PROBABLY:
-"""
-       #move this to slab aligner.
-        if args.creps1: creps1=args.creps1
-        else:                 creps1= int((args.thickness/get_thickness(slab1))) #SLAB1 is not defined yet.
-        if creps1==0:creps1=1
-        if args.creps2: creps2=args.creps2
-        else:                 creps2= int((args.thickness/get_thickness(slab2)))
-        if creps2==0:creps2=1
 
-        #slab1=slab1.repeat((1,1,creps1));         slab2=slab2.repeat((1,1,creps2))
 
-        slab1 = make_slab(miller1,atoms1,repeat=(1,1,creps1),square=False) #TODO:replace with creps
-        slab2 = make_slab(miller2,atoms2,repeat=(1,1,creps2),square=False)
-        """
+def align_three(slab1, slab2, slab3, L, Lmax, Lstep, ptol, thickness, atoms1, atoms2, atoms3):
+        """Common in-plane supercell of three slabs (for a slab1|slab2|slab3 multilayer).
 
+        slab1 and slab2 are aligned first (slab_aligner); the aligned slab2 is then matched with slab3, and the same integer
+        supercell transformation is applied to the aligned slab1. Returns the three aligned slabs (inputs unchanged)."""
+        s1, s2 = slab_aligner(slab1, slab2, L, Lmax, Lstep, ptol, thickness, atoms1, atoms2)
+        choice = find_commensurate_supercell(s2, slab3, L, Lmax, Lstep, ptol)
+        t2 = square_slab(cut_cell(s2, choice[2], choice[3], (0, 0, 1)))
+        t1 = square_slab(cut_cell(s1, choice[2], choice[3], (0, 0, 1)))
+        t3 = square_slab(cut_cell(slab3, choice[4], choice[5], (0, 0, 1)))
+        ase.build.rotate(t3, t2.cell[2], t3.cell[2], t3.cell[0], t2.cell[0])
+        atom_density_check(slab3, t3)
+        return t1, t2, t3
+
+def make_multilayer(slabs, seps, vac, reorder=True, check_clashes=True):
+        """Stack several aligned slabs from the bottom up (slabs[0] at the bottom).
+
+        seps[i] is the gap (A) along the surface normal between slabs[i] and slabs[i+1]; vac is the vacuum padding on both
+        sides. With a small vacuum the periodic images also join the top and the bottom slab (an extra interface)."""
+        if len(seps) != len(slabs) - 1:
+                raise ValueError("make_multilayer: need len(slabs)-1 separations")
+        stack = slabs[0]
+        for slab, sep in zip(slabs[1:], seps):
+                stack = make_interface(stack, slab, sep, 0.0, reorder=False, check_clashes=False)
+        stack = stack.copy()
+        stack.center(vacuum=vac, axis=2)
+        if reorder: stack = ase.build.sort(stack)
+        if check_clashes:
+                from .analysis import warn_clashes
+                warn_clashes(stack, "the multilayer")
+        return stack
+
+def prepare_cell_for_vasp(atoms):
+        """Make a cell safe for VASP: right-handed (positive triple product a.(b x c); otherwise a and b are swapped) and
+        no negative fractional coordinates along c (atoms are shifted into the cell). Returns the (possibly modified) atoms."""
+        changed=[]
+        if np.linalg.det(atoms.cell[:])<0:
+                atoms=flip_handedness(atoms); changed.append("made right-handed (a and b swapped)")
+        sp=atoms.get_scaled_positions(wrap=False)
+        if sp[:,2].min()<-1e-8 or sp[:,2].max()>=1.0:
+                pbc_c=bool(atoms.pbc[2])
+                if sp[:,2].max()-sp[:,2].min()<1.0:
+                        atoms.translate(-atoms.cell[2]*np.floor(sp[:,2].min()))
+                        changed.append("shifted along c (no negative z coordinates)")
+                elif pbc_c:
+                        atoms.wrap(); changed.append("wrapped into the cell")
+        if changed: debug("prepare_cell_for_vasp: cell "+", ".join(changed))
+        return atoms
+
+def reduce_inplane_pair(slab1, slab2):
+        """2D Minkowski (Gauss) reduction of the common in-plane cell of two aligned slabs: the shortest, most orthogonal
+        basis of slab1's in-plane lattice is found and the same integer transformation is applied to both slabs
+        (their in-plane cells are matched, so both describe the same supercell). Returns (slab1, slab2)."""
+        a=[slab1.cell[0][i] for i in range(0,2)]
+        b=[slab1.cell[1][i] for i in range(0,2)]
+        a2,b2=acute_Gauss(a,b)
+        M=[np.rint(basis_change([a,b],[a2,b2],[1,0])), np.rint(basis_change([a,b],[a2,b2],[0,1]))]
+        if abs(round(np.linalg.det(np.array(M))))!=1:
+                return slab1, slab2  #not a unimodular change (should not happen for a lattice reduction)
+        out=[]
+        for slab in (slab1,slab2):
+                new=cut_cell(slab,np.append(M[0],0),np.append(M[1],0),(0,0,1))
+                if np.dot(new.cell[2],np.cross(new.cell[0],new.cell[1])) < 0:
+                        new=flip_handedness(new)
+                out.append(new)
+        return out[0], out[1]
 
 def flip_cell(interface): #TODO: check if the resulting cross (triple) product of the resulting cell vectors is positive (whhich a an issue for VASP). THen it should not flip the cell
         #Flip a cell that extends towards -z (VASP cannot work with negative z coordinates).
@@ -765,7 +798,7 @@ def flip_cell(interface): #TODO: check if the resulting cross (triple) product o
         interface.translate([0.,0.,cell[2][2]])
         return interface
 
-def make_interface(slab1,slab2,sep,vac,reorder=True):
+def make_interface(slab1,slab2,sep,vac,reorder=True,check_clashes=True):
         """Stack two aligned slabs (slab1 at the bottom) into an interface.
 
         Args:
@@ -774,6 +807,7 @@ def make_interface(slab1,slab2,sep,vac,reorder=True):
             vac (float): vacuum padding (A) on both sides along c. With vac=sep/2 the periodic images form a second,
                 equivalent interface.
             reorder (bool): sort the atoms by element (otherwise the atoms of slab1 come first).
+            check_clashes (bool): warn if atoms are too close (see analysis.find_clashes).
         Returns:
             ase.Atoms: the interface (the input slabs are not modified). The in-plane cell is the average of both cells.
 
@@ -793,6 +827,9 @@ def make_interface(slab1,slab2,sep,vac,reorder=True):
         if reorder: interface=ase.build.sort(interface)
         interface.center(vacuum=vac, axis=2) #Vacuum on both sides. For dipole corrections at least 8A vacuum is needed.
         if (interface.get_cell()[2][2]<0): #VASP can't work with upside-down cells (with negative z-coordiantes)
-                print ("Cell extends towards -z direction, VASP cannot work with -ve z coords, fixing it...");stdout.flush()
+                debug("Cell extends towards -z direction, VASP cannot work with -ve z coords, fixing it...");stdout.flush()
                 interface=flip_cell(interface)
+        if check_clashes:
+                from .analysis import warn_clashes
+                warn_clashes(interface,"the interface (sep=%.2f A)"%sep)
         return interface

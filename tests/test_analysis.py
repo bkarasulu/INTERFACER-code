@@ -106,3 +106,57 @@ def test_chem_pots_linearly_dependent_products():
         a.calc = SinglePointCalculator(a, energy=e)
     with pytest.raises(ValueError, match="linearly dependent"):
         calculate_chem_pots(b, [na2o, nacl])   # Na3OCl = Na2O + NaCl
+
+
+def test_find_clashes_and_interface_warning(capsys):
+    from interfacer.analysis import find_clashes
+    from interfacer.builder import make_interface, make_slab, slab_aligner
+    cu = bulk("Cu", "fcc", a=3.61, cubic=True)
+    assert find_clashes(cu) == []
+    bad = cu.copy(); bad.positions[1] = bad.positions[0] + [0.3, 0, 0]
+    cl = find_clashes(bad)
+    assert cl and {cl[0][0], cl[0][1]} == {0, 1} and cl[0][2] == pytest.approx(0.3)
+    ni = bulk("Ni", "fcc", a=3.52, cubic=True)
+    s1, s2 = slab_aligner(make_slab((1, 0, 0), cu), make_slab((1, 0, 0), ni), 3, 20, 2, 4, 7, cu, ni)
+    capsys.readouterr()
+    make_interface(s1, s2, sep=2.0, vac=1.0)
+    assert "too close" not in capsys.readouterr().out
+    from interfacer.convergence import lateral_shift
+    warned = False
+    for xy in ((0, 0), (0.5, 0), (0, 0.5), (0.25, 0.25)):   # some registries put atoms on top of each other
+        make_interface(lateral_shift(s1, xy), s2, sep=0.3, vac=0.15)
+        warned |= "too close" in capsys.readouterr().out
+    assert warned
+
+
+def test_prepare_cell_for_vasp():
+    import numpy as np
+    from interfacer.builder import prepare_cell_for_vasp
+    from ase.build import fcc111
+    s = fcc111("Cu", size=(1, 1, 3), vacuum=5.0)
+    s.set_cell([s.cell[1], s.cell[0], s.cell[2]], scale_atoms=False)   # left-handed
+    s.positions[:, 2] -= 8.0                                          # negative z
+    out = prepare_cell_for_vasp(s.copy())
+    assert np.linalg.det(out.cell[:]) > 0
+    assert out.get_scaled_positions(wrap=False)[:, 2].min() >= -1e-8
+    d0 = s.get_all_distances(mic=True); d1 = out.get_all_distances(mic=True)
+    assert np.allclose(np.sort(d0.ravel()), np.sort(d1.ravel()), atol=1e-6)
+
+
+def test_sfe_vs_chempot_slope():
+    import numpy as np
+    from ase.calculators.singlepoint import SinglePointCalculator
+    from interfacer.analysis import interface_energy, sfe_vs_chempot
+    nacl = bulk("NaCl", "rocksalt", a=5.64, cubic=True)
+    nacl.calc = SinglePointCalculator(nacl, energy=-8.0)
+    slab = nacl.repeat((1, 1, 2))
+    del slab[[i for i, s in enumerate(slab.get_chemical_symbols()) if s == "Cl"][:1]]  # Na8Cl7: one extra Na
+    slab.center(vacuum=5.0, axis=2)
+    slab.calc = SinglePointCalculator(slab, energy=-14.0)
+    A = surf_area(slab) / 100
+    d = np.array([-1.0, 0.0, 1.0])
+    sfe = sfe_vs_chempot(slab, nacl, {"Na": -1.0, "Cl": -1.0}, "Na", "Cl", d)
+    # one extra Na atom: SFE decreases with mu(Na) with slope -1/(2A)
+    assert np.allclose(np.diff(sfe), -1.0 / (2 * A))
+    assert sfe[1] == pytest.approx(1.0 / (2 * A))
+    assert interface_energy(1.0, 1.7, 2.6) == pytest.approx(0.1)

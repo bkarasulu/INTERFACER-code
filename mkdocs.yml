@@ -47,7 +47,7 @@ nav:
       - Theory and definitions: theory.md
       - Command-line reference: cli.md
       - Input files: input_files.md
-      - DFT codes (VASP, CASTEP): dft_codes.md
+      - DFT codes (VASP, CASTEP, GPAW, ONETEP): dft_codes.md
       - Machine-learning potentials: mlip.md
   - Python API:
       - Overview: python_api.md
@@ -55,8 +55,11 @@ nav:
       - interfacer.builder: api/builder.md
       - interfacer.analysis: api/analysis.md
       - interfacer.convergence: api/convergence.md
+      - interfacer.grainboundary: api/grainboundary.md
+      - interfacer.symmetry: api/symmetry.md
       - interfacer.calculators: api/calculators.md
       - interfacer.io: api/io.md
+      - interfacer.log: api/log.md
   - Development:
       - Package layout and migration: package_layout.md
       - Testing and contributing: development.md

@@ -22,12 +22,30 @@ class CalcSettings:
     steps: int = 200                     # max optimisation steps
     optimiser: str = "BFGS"              # BFGS, FIRE or LBFGS
     relax_cell_bulk: bool = False        # relax the cell of bulk structures (ASE engines)
+    fix_mode: str = "bottom"             # layers kept fixed with fix_bottom_layers: 'bottom' or 'middle' (bulk-like centre)
+    calc_kwargs: dict = field(default_factory=dict)  # extra settings for GPAW/ONETEP (-prog gpaw/onetep)
     # machine-learning potentials (-prog mlip)
     mlip: str = "mace"                   # backend, see interfacer.calculators.mlip
     mlip_model: Optional[str] = None     # model name or path (backend default if None)
     device: str = "auto"                 # cpu, cuda, mps or auto
     mlip_kwargs: dict = field(default_factory=dict)  # extra keyword arguments for the calculator
     outdir: str = "OUTPUT"               # where trajectories are written
+    # restarts
+    restart: Optional[bool] = None       # reuse finished calculations (default: yes for VASP/CASTEP, no for ASE/ML)
+    overwrite: bool = False              # redo all calculations (existing VASP/CASTEP runs are moved aside, not deleted)
+    cache_dir: str = "ASE-calcs"         # results of ASE/ML calculations kept for --restart
+
+
+def backup_path(path):
+    """Move an existing file or directory to <path>_old<n> (first free n). Returns the new name, or None."""
+    import os
+    if not os.path.exists(path):
+        return None
+    n = 1
+    while os.path.exists("%s_old%d" % (path, n)):
+        n += 1
+    os.rename(path, "%s_old%d" % (path, n))
+    return "%s_old%d" % (path, n)
 
 
 class Engine:

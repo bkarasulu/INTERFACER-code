@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,7 +8,16 @@ dynamic = ["version"]
 description = "Build and analyse solid-solid interfaces from two bulk structures (VASP, CASTEP and ASE calculators)"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "See repository" }
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [{ name = "Huseyin Sener Sen" }, { name = "Bora Karasulu" }]
+keywords = ["interfaces", "surfaces", "DFT", "VASP", "CASTEP", "ASE", "machine-learning potentials", "batteries"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Physics",
+]
 dependencies = [
     "numpy>=1.24",
     "scipy",
@@ -21,6 +30,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest", "pyyaml"]
+notebooks = ["jupyter", "nbclient", "ipykernel"]
 yaml = ["pyyaml"]
 docs = ["mkdocs-material", "mkdocstrings[python]"]
 lint = ["ruff"]
@@ -33,6 +43,11 @@ orb = ["orb-models"]
 fairchem = ["fairchem-core"]
 nequip = ["nequip"]
 allegro = ["nequip-allegro"]
+
+[project.urls]
+Homepage = "https://github.com/bkarasulu/INTERFACER-code"
+Documentation = "https://interfacer.readthedocs.io"
+Issues = "https://github.com/bkarasulu/INTERFACER-code/issues"
 
 [project.scripts]
 interfacer = "interfacer.cli:main"

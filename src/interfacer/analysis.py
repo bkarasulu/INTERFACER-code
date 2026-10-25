@@ -8,7 +8,8 @@ import ase.build
 import numpy as np
 from ase import Atoms
 from ase.geometry import find_mic
-from spglib import find_primitive, get_spacegroup
+from .log import debug, say, warn
+from .symmetry import primitive_cell, spacegroup
 
 
 def get_thickness(atoms): #replace cell[2][2] or vol/surf_area (better)
@@ -153,24 +154,73 @@ def get_fu(atoms):
                                 if j%i!=0:fl=0
                         if fl:fu=i
         #print fu
-        except: print("Error in fu determination, fu set to 1");   fu=1
+        except: warn("Error in fu determination, fu set to 1");   fu=1
     
         return fu        
 
 def find_prim(atoms,tol=1e-4):#using SPGlib find primitive cell of a given atoms object.
-        scaled_positions= atoms.get_scaled_positions()#(wrap=True) 
-        cell=(atoms.cell, scaled_positions, atoms.numbers)
-        #print cell
-        print("Space group of the given cell using tolerance=%f: %s"%(tol,get_spacegroup(cell,symprec=tol)))
-        prim = find_primitive(cell, symprec=tol)
+        debug("Space group of the given cell using tolerance=%f: %s"%(tol,spacegroup(atoms,symprec=tol)))
+        prim = primitive_cell(atoms, symprec=tol)
         if prim is None:
-                print("find_prim: spglib could not find a primitive cell (tol=%g), using the input cell."%tol)
+                warn("find_prim: spglib could not find a primitive cell (tol=%g), using the input cell."%tol)
                 return atoms.copy()
         lattice, scaled_positions, numbers = prim
         #lattice, scaled_positions, numbers = standardize_cell(cell, to_primitive=True, no_idealize=False, symprec=tol)
         atoms2=Atoms(symbols=numbers,cell=lattice,scaled_positions=scaled_positions,pbc=True)
         return atoms2
 
+
+def interface_energy(gamma1, gamma2, W_ad):
+        """Interface (formation) energy from the Dupre relation: gamma_int = gamma_1 + gamma_2 - W_ad (same units)."""
+        return gamma1 + gamma2 - W_ad
+
+def sfe_vs_chempot(slab, bulk, chem_pots, element, partner, dmu):
+        """Surface formation energy (eV/nm^2) of a slab as a function of the chemical potential of one element.
+
+        mu_element = chem_pots[element] + dmu; to keep the bulk in equilibrium (sum_i n_i mu_i = E_bulk), the chemical
+        potential of `partner` changes by -dmu * n_element / n_partner (n: numbers of atoms in the bulk).
+        Args:
+            slab, bulk (ase.Atoms): with energies.
+            chem_pots (dict): reference chemical potentials of all elements of the bulk (eV).
+            element, partner (str): the varied element and the compensating one.
+            dmu (array): changes of mu_element (eV).
+        Returns:
+            numpy array of SFEs (eV/nm^2), one per value of dmu.
+        """
+        sym=bulk.get_chemical_symbols()
+        if element not in chem_pots or partner not in chem_pots:
+                raise ValueError("sfe_vs_chempot: %s and %s need reference chemical potentials (have %s)"%(element,partner,sorted(chem_pots)))
+        if element==partner: raise ValueError("sfe_vs_chempot: element and partner must differ")
+        ratio=sym.count(element)/float(sym.count(partner))
+        out=[]
+        for d in np.atleast_1d(dmu):
+                cp=dict(chem_pots); cp[element]+=d; cp[partner]-=d*ratio
+                out.append(calculate_SFE(slab,bulk,chem_pots=cp))
+        return np.array(out)
+
+def find_clashes(atoms, factor=0.6):
+        """Pairs of atoms closer than factor*(r_cov,i + r_cov,j) (periodic images included).
+        Returns a list of (i, j, distance, threshold) with i < j, sorted by distance."""
+        from ase.data import covalent_radii
+        from ase.neighborlist import neighbor_list
+        r=covalent_radii[atoms.numbers]
+        if len(atoms)==0: return []
+        cutoff=float(2*factor*r.max())
+        i,j,d=neighbor_list('ijd',atoms,cutoff)
+        out=[]
+        for a,b,dist in zip(i,j,d):
+                thr=factor*(r[a]+r[b])
+                if a<b and dist<thr: out.append((int(a),int(b),float(dist),float(thr)))
+        return sorted(out,key=lambda x:x[2])
+
+def warn_clashes(atoms, label="structure", factor=0.6):
+        """Print a warning if atoms clash (see find_clashes); returns the clashes."""
+        cl=find_clashes(atoms,factor)
+        if cl:
+                a,b,dist,thr=cl[0]
+                warn("WARNING: %d atom pair(s) too close in %s, e.g. %s%d-%s%d at %.2f A (< %.2f A = %.1f x sum of covalent radii). "
+                     "Check the separation (-sep) and the slab terminations."%(len(cl),label,atoms[a].symbol,a,atoms[b].symbol,b,dist,thr,factor))
+        return cl
 
 def is_stoichiometric(slab, bulk, tol=1e-6):
         """True if the slab has the composition of the bulk (same elements in the same ratios)."""
@@ -194,7 +244,7 @@ def get_interface_energy(slab1,slab2,Ebulk1,Ebulk2,dist=1.0,convLayers=False,vac
             Eslab1, Eslab2 (eV), Ws1, Ws2 (eV/nm^2), interface (ase.Atoms with W_ad in interface.info['W_ad'], eV/nm^2)
         """
         if convLayers:
-                raise NotImplementedError("get_interface_energy: layer convergence is done by conv_layers() in interfacer-new.py")
+                raise NotImplementedError("get_interface_energy: layer convergence is done by conv_layers() in interfacer.py")
         if calc is None: calc = slab1.calc if slab1.calc is not None else slab2.calc
         if calc is None: raise ValueError("get_interface_energy: no calculator given or attached to the slabs.")
 
@@ -217,7 +267,7 @@ def get_interface_energy(slab1,slab2,Ebulk1,Ebulk2,dist=1.0,convLayers=False,vac
         #Work of adhesion (positive for a bound interface).
         Wad=(Eslab1+Eslab2-Eint)/surf_area(int1)/0.01 #A2 to nm2
         int1.info['W_ad']=Wad
-        print('Wsurf 1: %.2f eV/nm^2, Wsurf 2: %.2f eV/nm^2, W_ad: %.2f eV/nm^2'%(Ws1,Ws2,Wad))
+        say('Wsurf 1: %.2f eV/nm^2, Wsurf 2: %.2f eV/nm^2, W_ad: %.2f eV/nm^2'%(Ws1,Ws2,Wad))
         return Eslab1,Eslab2,Ws1,Ws2,int1
 
 ################# functions to determine surface formation energies of symmetric surfaces ###################################

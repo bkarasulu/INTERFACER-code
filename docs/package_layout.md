@@ -4,7 +4,7 @@ From version 1.0.0.dev0 the code is the installable Python package `interfacer` 
 
 Old scripts and command lines keep working:
 
-- `python interfacer-new.py <options>` takes exactly the same options as before; it calls `interfacer.cli.main`.
+- `python interfacer.py <options>` (formerly `interfacer-new.py`) takes exactly the same options as before; it calls `interfacer.cli.main`.
 - `from tools.builder import *`, `from tools.analysis import *` and `from tools.external import *` still work; these modules now re-export the package.
 
 ## Where things moved

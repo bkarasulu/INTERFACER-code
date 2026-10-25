@@ -33,4 +33,4 @@ bulk 1, bulk 2 ──► optimise bulks ──► [surface screening -tsur] ─�
 - [Workflow and output files](workflow.md) and [Theory and definitions](theory.md): what is computed, and how.
 - [Command-line reference](cli.md) and [Input files](input_files.md).
 
-INTERFACER was originally written as the `interfacer-new.py` script with the `tools/` modules. Both still work; see [Package layout and migration](package_layout.md).
+INTERFACER was originally written as the `interfacer-new.py` script (now `interfacer.py`) with the `tools/` modules. Both still work; see [Package layout and migration](package_layout.md).

@@ -87,7 +87,7 @@ src/interfacer/
     mlip.py            # registry: mace, chgnet, matgl/m3gnet, sevennet, orb, fairchem, nequip/allegro, "custom:module:factory"; lazy imports with clear install hints; device/dtype/model args
     optimise.py        # shared ASE relax: BFGS/FIRE + FrechetCellFilter (bulk), FixAtoms (frozen bottom layers), trajectory output
 tools/  -> thin compat shims re-exporting from interfacer.*
-interfacer-new.py -> wrapper around interfacer.cli:main
+interfacer.py (formerly interfacer-new.py) -> wrapper around interfacer.cli:main
 tests/  docs/  tutorials/  .github/workflows/ci.yml
 ```
 New CLI options (old options unchanged): `-prog mlip` (`ase` keeps its current meaning), `--mlip {mace,chgnet,...}`, `--mlip_model <name|path>`, `--device`, `--ase_opt {BFGS,FIRE,LBFGS}`, `--relax_cell_bulk`, `--fix_layers N`, `--input file.toml`, `--outdir`, `--overwrite`.
@@ -101,7 +101,7 @@ Pipeline restarts become uniform for every engine (skip a step when its output a
 - **Phase 2 started:** regression and end-to-end tests in `tests/`.
 - **Phase 3 done:**
   - Installable `interfacer` package in `src/` (`pyproject.toml`) with the `interfacer` command.
-  - `interfacer-new.py` and `tools/` are compatibility wrappers. See `package_layout.md`.
+  - `interfacer.py` (formerly `interfacer-new.py`) and `tools/` are compatibility wrappers. See `package_layout.md`.
 - **Phase 4 done:**
   - `interfacer.calculators`: `Engine` interface, `VaspEngine`/`CastepEngine` (the original drivers, unchanged behaviour) and `AseEngine` (any ASE calculator).
   - Shared ASE optimiser with cell relaxation, frozen bottom layers and a choice of optimiser.
@@ -124,6 +124,35 @@ Pipeline restarts become uniform for every engine (skip a step when its output a
 - **Phase 9 done:** Tutorials 01 (Cu|Ni EMT), 02 (Na3OCl|Na MACE), 03 (symmetric slabs/SFE), 04 (β-Li3PS4|Li VASP + MACE pre-screen) and 05 (Python API script and notebook), each with expected results; they are run by `tests/test_tutorials.py`.
 - **Phase 10 done:** `.github/workflows/ci.yml` (ruff, pytest on Python 3.10–3.13, tutorial 1, a MACE job, strict docs build) and the ruff configuration in `pyproject.toml`.
 
+## Follow-up work packages (`devel` branch)
+
+These work packages come from the task list after the refactor; see the changelog for details.
+
+- **WP1, project files (done):** GPL-3.0-or-later `LICENSE`, `CITATION.cff`, `CONTRIBUTING.md`, issue templates, Read the Docs configuration, `v1-legacy` branch of the original code, and the driver script renamed to `interfacer.py`.
+- **WP2, bugs and to-dos (done):**
+  - logging with `-v`/`-q`;
+  - restarts for all engines;
+  - spglib symmetry helpers and the internal symmetric-slab generator;
+  - the scan order (lateral registry first), with a fixed cell after the scans;
+  - slab orientation (`orient_up`, `calc_R1`);
+  - right-handed VASP cells;
+  - clash checks;
+  - removal of dead code.
+- **WP3, test systems (done):** Li2S, Li, Na, β-Li3PS4 and Na3OCl, with MACE system tests.
+- **WP4, features (done):**
+  - interface energy and SFE against the chemical potential;
+  - `-topt` and `--minkowski`;
+  - GPAW and ONETEP engines and `--fix_mode`;
+  - three-layer interfaces;
+  - grain boundaries.
+- **WP5, tutorials (done):** analysis notebooks for Tutorials 1, 2, 3 and 6, with the EMT notebooks run in the CI.
+- **WP6, documentation (done):** docs for all new features, README licence and citation, and the JOSS paper (`paper/`) with its draft-PDF workflow.
+- **Not planned:** a slab-energy correction for the misfit strain.
+- **Possible next steps:**
+  - a scan of the rigid-body translation of grain-boundary grains;
+  - general CSL tilt axes;
+  - more than three layers in the CLI.
+
 ## Roadmap (phases, each one or more commits on `claude/exciting-hamilton-eunp54`)
 1. **Housekeeping.** Merge `symINTERFACER`. Remove `__pycache__` and the heavy VASP files (POTCAR, WAVECAR, CHG*, DOSCAR, EIGENVAL, vasprun.xml, PCDAT) from tracking, and add them to `.gitignore`. Finish the bug audit and record it in `docs/known_issues.md`.
 2. **Characterisation tests first.** Using the ASE/LJ and EMT engines, write tests that capture current behaviour of the pure geometry and analysis functions (`make_slab`, `slab_aligner`, `misfit`, `surf_area`, `get_fu`, `calculate_SFE`, `find_commensurate_supercell`) on small bulks (Cu fcc, Na bcc, NaCl, and the Na3OCl and Li3PS4 CIFs from Tutorials). These tests guard the refactor.
@@ -138,7 +167,7 @@ Pipeline restarts become uniform for every engine (skip a step when its output a
 
 ## Verification
 - `pip install -e .[test]`, then `pytest -q`. Characterisation tests must pass before and after each move. Bug-fix tests fail on old code and pass on new code.
-- `interfacer -i1 Cu.cif -i2 Ni.cif -m1 1 0 0 -m2 1 0 0 -prog ase -quick` and `python interfacer-new.py <the same old flags from Tutorials/*/run_script> -dry` both run end to end and produce `OUTPUT/` files.
+- `interfacer -i1 Cu.cif -i2 Ni.cif -m1 1 0 0 -m2 1 0 0 -prog ase -quick` and `python interfacer.py <the same old flags from Tutorials/*/run_script> -dry` both run end to end and produce `OUTPUT/` files.
 - With mace-torch installed: `interfacer ... -prog mlip --mlip mace --mlip_model small` on Na3OCl|Na gives finite Wsurf/Wad values and a relaxed interface.
 - `mkdocs build --strict` passes. Tutorial (a) runs in CI.
 - VASP and CASTEP paths can't run here. They are checked with `-dry` and with mocked calculator tests that confirm the INCAR and parameter settings match the old code.
