@@ -11,10 +11,17 @@ Every option except `--input`, `--save_input`, `--help` and `--version` can also
 | Option | Default | Description |
 |---|---|---|
 | `-i1`, `--infile1` |  | Bulk structure of material 1 (bottom slab); any format ASE can read (cif, POSCAR, res, xyz, ...). |
-| `-i2`, `--infile2` |  | Bulk structure of material 2 (top slab). |
+| `-i2`, `--infile2` |  | Bulk structure of material 2 (top slab); required unless --gb is used. |
+| `-i3`, `--infile3` |  | Bulk structure of material 3 for three-layer interfaces slab1\|slab2\|slab3 (optional). |
 | `-o`, `--outfile` | `interfaces.out` | Summary file with the surface energies and works of adhesion. Def: interfaces.out |
 | `-m1`, `--miller1` | `1 0 0` | Miller indices of the surface of material 1, e.g. -m1 1 1 0. Def: 1 0 0 |
 | `-m2`, `--miller2` | `1 0 0` | Miller indices of the surface of material 2. Def: 1 0 0 |
+| `-m3`, `--miller3` | `1 0 0` | Miller indices of the surface of material 3 (-i3). Def: 1 0 0 |
+| `-cr3`, `--creps3` |  | Repetitions in c direction (number of layers) for surface model 3 (-i3). Def: 1 |
+| `-sep2`, `--sep2` |  | Separation between slab 2 and slab 3 in three-layer interfaces (A). Def: -sep |
+| `--gb` {tilt,twist} |  | Grain-boundary mode: a symmetric tilt or a twist boundary of material 1 (-i1) with the boundary plane -m1, instead of an interface of two materials. |
+| `--gb_mn` | `2 1` | CSL integers m n of a twist boundary (square or hexagonal planes), e.g. 2 1 for Sigma5 on cubic (100) or Sigma7 on fcc (111). Def: 2 1 |
+| `--gb_expansion` |  | Extra rigid-body separation at each symmetric tilt boundary (A). Def: 0 |
 | `-surf1`, `--surface1` |  | extra input file for a surface structure of i1 |
 | `-surf2`, `--surface2` |  | extra input file for a surface structure of i2 |
 
@@ -44,6 +51,8 @@ Every option except `--input`, `--save_input`, `--help` and `--version` can also
 | `-cp2`, `--chem_pots2` |  | Chemical potentials for the slab2, e.g. "{'Fe':-3.0, 'O':-2.0}" (in eV). Def: No |
 | `-decomps1`, `--decomps1` |  | list of decomposition structure files of slab1. Def: No |
 | `-decomps2`, `--decomps2` |  | list of decomposition structure files of slab2. Def: No |
+| `--sfe_scan1` |  | SFE of all slabs of material 1 vs the chemical potential of one element, e.g. 'Na,Cl,-1.0,0.0': Delta mu(Na) from -1 to 0 eV relative to the reference chemical potentials (-cp1/-decomps1), compensated by Cl to keep the bulk in equilibrium. Writes OUTPUT/sfe_vs_mu_1.csv/.png. Def: none |
+| `--sfe_scan2` |  | As --sfe_scan1 for material 2. Def: none |
 | `-surf_only`, `--surf_only` |  | Use to only calculate the surfaces and exit before the creation of the interfaces. Def: no |
 
 ## Convergence and screening tests
@@ -54,6 +63,9 @@ Every option except `--input`, `--save_input`, `--help` and `--version` can also
 | `-tlay`, `-test_layer`, `--convLayers` |  | To run a convergence test on the layer thickness for slab(s) generated. Def: No |
 | `-tsep`, `-test_sep`, `--convSep` |  | To run a convergence test on the interlayer separation for the interface generated. Def: No |
 | `-thor`, `-test_hori`, `--test_hori` |  | To run a convergence test on the relative placement of slabs w.r.t. each other for the interface generated. Def: No |
+| `-topt`, `--test_opt` |  | Optimise the placement of the rigid slabs (lateral shift and separation) with scipy on single-point energies, starting from the best -thor/-tsep result. Def: No |
+| `--topt_maxiter` | `60` | Maximum number of iterations of -topt. Def: 60 |
+| `--minkowski` |  | 2D Minkowski (Gauss) reduction of the matched in-plane cell of the aligned slabs/interface. Def: No |
 | `-mlist`, `--miller_list` | `100 010 001 110 111` | list of Miller indices to check during the surface stability analysis (--checkSurfs), e.g. -mlist 100 110 111 or -mlist 1,0,0 1,-1,0. Def: 100 010 001 110 111 |
 | `-sep_init`, `--sep_init` | `1.0` | Initial interface separation to be used in seperation convergence test (--convSep), def: 1.0 A |
 | `-sep_final`, `--sep_final` | `3.0` | Final interface separation (included) to be used in seperation convergence test (--convSep), def: 3.0 A |

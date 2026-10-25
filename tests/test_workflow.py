@@ -99,7 +99,6 @@ def test_interface_energy_reported(tmp_path, emt_engine):
 
 
 def test_optimise_placement_finds_lower_energy(tmp_path):
-    import numpy as np
     from ase.calculators.emt import EMT
     from interfacer.builder import make_slab, slab_aligner
     from interfacer.calculators import AseEngine, CalcSettings

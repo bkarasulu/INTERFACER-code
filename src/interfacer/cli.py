@@ -58,10 +58,17 @@ def build_parser():
 
     #Basic input/output related keywords
     parser.add_argument("-i1", "--infile1", required=1, help="Bulk structure of material 1 (bottom slab); any format ASE can read (cif, POSCAR, res, xyz, ...).")
-    parser.add_argument("-i2", "--infile2", required=1, help="Bulk structure of material 2 (top slab).")
+    parser.add_argument("-i2", "--infile2", default=None, help="Bulk structure of material 2 (top slab); required unless --gb is used.")
+    parser.add_argument("-i3", "--infile3", default=None, help="Bulk structure of material 3 for three-layer interfaces slab1|slab2|slab3 (optional).")
     parser.add_argument("-o", "--outfile", default="interfaces.out", help="Summary file with the surface energies and works of adhesion. Def: interfaces.out")
     parser.add_argument("-m1", "--miller1", default=(1,0,0), nargs="+", type=int, help="Miller indices of the surface of material 1, e.g. -m1 1 1 0. Def: 1 0 0")
     parser.add_argument("-m2", "--miller2", default=(1,0,0), nargs="+", type=int, help="Miller indices of the surface of material 2. Def: 1 0 0")
+    parser.add_argument("-m3", "--miller3", default=(1,0,0), nargs="+", type=int, help="Miller indices of the surface of material 3 (-i3). Def: 1 0 0")
+    parser.add_argument("-cr3", "--creps3", default=None, type=int, help="Repetitions in c direction (number of layers) for surface model 3 (-i3). Def: 1")
+    parser.add_argument("-sep2", "--sep2", default=None, type=float, help="Separation between slab 2 and slab 3 in three-layer interfaces (A). Def: -sep")
+    parser.add_argument("--gb", default=None, choices=["tilt","twist"], help="Grain-boundary mode: a symmetric tilt or a twist boundary of material 1 (-i1) with the boundary plane -m1, instead of an interface of two materials.")
+    parser.add_argument("--gb_mn", default=(2,1), nargs=2, type=int, help="CSL integers m n of a twist boundary (square or hexagonal planes), e.g. 2 1 for Sigma5 on cubic (100) or Sigma7 on fcc (111). Def: 2 1")
+    parser.add_argument("--gb_expansion", default=0.0, type=float, help="Extra rigid-body separation at each symmetric tilt boundary (A). Def: 0")
     parser.add_argument("-surf1", "--surface1", default=False, help="extra input file for a surface structure of i1")
     parser.add_argument("-surf2", "--surface2", default=False, help="extra input file for a surface structure of i2")
 
@@ -319,7 +326,8 @@ def main(argv=None):
                args.ase_gsteps=1 
                args.ase_fmax=0.01
 
-        if len(args.miller1)!=3 or len(args.miller2)!=3: parser.error("-m1/-m2 need three Miller indices, e.g. -m1 1 0 0")
+        if len(args.miller1)!=3 or len(args.miller2)!=3 or len(args.miller3)!=3: parser.error("-m1/-m2/-m3 need three Miller indices, e.g. -m1 1 0 0")
+        if not args.gb and not args.infile2: parser.error("-i2/--infile2 is required (unless --gb is used)")
         try:
                 settings=make_settings(args)
                 config=config_from_args(args)
@@ -332,11 +340,11 @@ def main(argv=None):
                 try: engine.get_calculator()
                 except (ImportError,ValueError) as err: parser.error(str(err))
 
-        say("Reading data from %s and %s."%(args.infile1,args.infile2))
-        atoms1 = ase.io.read(args.infile1)
-        atoms2 = ase.io.read(args.infile2)
+        files=[f for f in (args.infile1,None if args.gb else args.infile2,None if args.gb else args.infile3) if f]
+        say("Reading data from %s."%" and ".join(files))
+        atoms=[ase.io.read(f) for f in files]
 
-        InterfaceWorkflow(engine,config).run(atoms1,atoms2)
+        InterfaceWorkflow(engine,config).run(*atoms)
         return 0
 
 

@@ -723,6 +723,38 @@ def slab_aligner(slab1,slab2,L,Lmax,Lstep,ptol,thickness,atoms1,atoms2):
 
 
 
+def align_three(slab1, slab2, slab3, L, Lmax, Lstep, ptol, thickness, atoms1, atoms2, atoms3):
+        """Common in-plane supercell of three slabs (for a slab1|slab2|slab3 multilayer).
+
+        slab1 and slab2 are aligned first (slab_aligner); the aligned slab2 is then matched with slab3, and the same integer
+        supercell transformation is applied to the aligned slab1. Returns the three aligned slabs (inputs unchanged)."""
+        s1, s2 = slab_aligner(slab1, slab2, L, Lmax, Lstep, ptol, thickness, atoms1, atoms2)
+        choice = find_commensurate_supercell(s2, slab3, L, Lmax, Lstep, ptol)
+        t2 = square_slab(cut_cell(s2, choice[2], choice[3], (0, 0, 1)))
+        t1 = square_slab(cut_cell(s1, choice[2], choice[3], (0, 0, 1)))
+        t3 = square_slab(cut_cell(slab3, choice[4], choice[5], (0, 0, 1)))
+        ase.build.rotate(t3, t2.cell[2], t3.cell[2], t3.cell[0], t2.cell[0])
+        atom_density_check(slab3, t3)
+        return t1, t2, t3
+
+def make_multilayer(slabs, seps, vac, reorder=True, check_clashes=True):
+        """Stack several aligned slabs from the bottom up (slabs[0] at the bottom).
+
+        seps[i] is the gap (A) along the surface normal between slabs[i] and slabs[i+1]; vac is the vacuum padding on both
+        sides. With a small vacuum the periodic images also join the top and the bottom slab (an extra interface)."""
+        if len(seps) != len(slabs) - 1:
+                raise ValueError("make_multilayer: need len(slabs)-1 separations")
+        stack = slabs[0]
+        for slab, sep in zip(slabs[1:], seps):
+                stack = make_interface(stack, slab, sep, 0.0, reorder=False, check_clashes=False)
+        stack = stack.copy()
+        stack.center(vacuum=vac, axis=2)
+        if reorder: stack = ase.build.sort(stack)
+        if check_clashes:
+                from .analysis import warn_clashes
+                warn_clashes(stack, "the multilayer")
+        return stack
+
 def prepare_cell_for_vasp(atoms):
         """Make a cell safe for VASP: right-handed (positive triple product a.(b x c); otherwise a and b are swapped) and
         no negative fractional coordinates along c (atoms are shifted into the cell). Returns the (possibly modified) atoms."""

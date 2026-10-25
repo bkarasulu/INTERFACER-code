@@ -30,10 +30,11 @@ import numpy as np
 from ase.build import niggli_reduce
 
 from .analysis import calculate_chem_pots, calculate_SFE, find_prim, interface_energy, sfe_vs_chempot, get_fu, is_stoichiometric, misfit, surf_area, warn_clashes
-from .builder import make_interface, make_slab, permute_surface, reduce_inplane_pair, slab_aligner, standardise_slab
+from .builder import align_three, make_interface, make_multilayer, make_slab, permute_surface, reduce_inplane_pair, slab_aligner, standardise_slab
 from .convergence import cfactor, check_surfaces, checkHorizontal, conv_layers, convSep, optimise_placement
+from .grainboundary import gb_energy, symmetric_tilt_gb, twist_gb
 from .io import backup_output, write_struct
-from .log import ensure_logging, say
+from .log import ensure_logging, say, warn
 
 
 def _log(msg=""):
@@ -90,6 +91,14 @@ class WorkflowConfig:
     test_opt: bool = False                # scipy optimisation of the rigid-slab placement (x, y, sep) (-topt)
     topt_maxiter: int = 60                # (--topt_maxiter)
     minkowski: bool = False               # 2D Minkowski reduction of the matched in-plane cell (--minkowski)
+    # three-layer interfaces (slab1|slab2|slab3; material 3 from -i3)
+    miller3: tuple = (1, 0, 0)            # (-m3)
+    creps3: int = 1                       # (-cr3)
+    sep2: Optional[float] = None          # gap between slab 2 and slab 3, A; default: sep (-sep2)
+    # grain boundaries of material 1 (instead of an interface of two materials)
+    gb: Optional[str] = None              # 'tilt' or 'twist' (--gb)
+    gb_mn: tuple = (2, 1)                 # CSL integers (m, n) of a twist boundary (--gb_mn)
+    gb_expansion: float = 0.0             # extra rigid-body separation at each tilt boundary, A (--gb_expansion)
     # calculations
     kpgrid: Optional[str] = None          # k-point grid for slabs/interfaces, e.g. '4 4 1' (-kp_gr, -gamma)
     zero_chem_pots: bool = False          # use zero chemical potentials for non-stoichiometric slabs (test runs only)
@@ -144,6 +153,40 @@ class InterfaceResult:
 
 
 @dataclass
+class TrilayerResult:
+    name: str
+    E1: float                             # eV, aligned and optimised slabs
+    E2: float
+    E3: float
+    sep12: float                          # A
+    sep23: float
+    E_stack: float                        # eV, optimised slab1|slab2|slab3
+    W_ad_total: float                     # (E1 + E2 + E3 - E_stack) / A, eV/nm^2: W_ad(1|2) + W_ad(2|3)
+    area: float                           # A^2
+
+    @property
+    def W_ad_total_J(self):
+        return self.W_ad_total * cfactor
+
+
+@dataclass
+class GBResult:
+    name: str
+    kind: str                             # 'tilt' or 'twist'
+    miller: tuple
+    natoms: int
+    E_gb: float                           # eV, optimised bicrystal
+    gamma_gb: float                       # grain-boundary energy, eV/nm^2
+    area: float                           # A^2
+    twist_angle: Optional[float] = None   # degrees (twist boundaries)
+    sigma: Optional[int] = None           # CSL Sigma (twist boundaries)
+
+    @property
+    def gamma_gb_J(self):
+        return self.gamma_gb * cfactor
+
+
+@dataclass
 class WorkflowResults:
     E_bulk1: float = float("nan")         # eV/atom
     E_bulk2: float = float("nan")
@@ -152,6 +195,8 @@ class WorkflowResults:
     slabs1: List[SlabResult] = field(default_factory=list)
     slabs2: List[SlabResult] = field(default_factory=list)
     interfaces: List[InterfaceResult] = field(default_factory=list)
+    trilayers: List[TrilayerResult] = field(default_factory=list)
+    grain_boundaries: List[GBResult] = field(default_factory=list)
 
     def to_dict(self):
         return asdict(self)
@@ -165,8 +210,9 @@ class InterfaceWorkflow:
         self.engine = engine
         self.cfg = config if config is not None else WorkflowConfig()
         self.results = WorkflowResults()
-        self.bulk1 = self.bulk2 = None
-        self.Ebulk1 = self.Ebulk2 = None
+        self.bulk1 = self.bulk2 = self.bulk3 = None
+        self.Ebulk1 = self.Ebulk2 = self.Ebulk3 = None
+        self.slab3 = None
         self.chem_pots = {1: None, 2: None}   # chemical potentials used for the SFEs (given or from decompositions)
         self.opt_slabs = {1: [], 2: []}        # pre-optimised slabs (for the SFE analysis)
         self._outf = None
@@ -499,15 +545,116 @@ class InterfaceWorkflow:
                                float(sep), float(Eint), float(Wad), n_int, [float(x) for x in shift] if shift else None,
                                float(surf_area(interface)), float(g_int))
 
-    # ------------------------------------------------------------------------------------------------ full run
-    def run(self, atoms1, atoms2):
-        """Run the full workflow for two bulk structures. Returns WorkflowResults (also written to <outdir>/results.json)."""
+    def setup_material3(self, atoms3):
+        """Optimise bulk 3 and cut slab 3 (cfg.miller3, cfg.creps3 layers) for three-layer interfaces."""
         cfg = self.cfg
+        if cfg.prim:
+            atoms3 = find_prim(atoms3)
+        _log("\nComputing bulk 3 energy (%s)." % atoms3.get_chemical_formula(empirical=1))
+        atoms3.name = 'bulk3'
+        E, self.bulk3 = self.engine.run(atoms3, "geom", 'bulk3', dipolCorr='None', relax_cell=True)
+        self.Ebulk3 = E / len(self.bulk3)
+        self.write(self.bulk3, "bulk3_opted")
+        self.slab3 = make_slab(tuple(cfg.miller3), self.bulk3, repeat=(1, 1, cfg.creps3), square=0)
+        self.slab3.name = 'slab3_cut0'
+
+    def run_trilayer(self, ci, slab1, cj, slab2, slab3):
+        """Three-layer interface slab1|slab2|slab3 (slab 3 from material 3, -i3). Returns a TrilayerResult or None.
+
+        The three slabs get a common in-plane cell (align_three), are optimised with a fixed cell, stacked with the gaps
+        sep (1|2) and sep2 (2|3) and a vacuum of at least 4 A on each side (so that the periodic images do not form a
+        3|1 interface), and the stack is optimised with a fixed cell. W_ad_total = W_ad(1|2) + W_ad(2|3)."""
+        cfg = self.cfg
+        _log("\n\nThree-layer interface %s | %s | %s" % (slab1.name, slab2.name, slab3.name))
+        try:
+            s1, s2, s3 = align_three(slab1.copy(), slab2.copy(), slab3.copy(), cfg.init_length, cfg.max_slab_dimension,
+                                     cfg.step_length, cfg.percentage_tolerance, cfg.thickness, self.bulk1, self.bulk2, self.bulk3)
+        except RuntimeError as err:
+            _log("Alignment of the three slabs failed: %s" % err)
+            return None
+        _log("Misfits after alignment: 1|2 %.2f%%, 2|3 %.2f%%" % (misfit(s1, s2) * 100, misfit(s2, s3) * 100))
+        tag = "%s_%s_%s" % (ci, cj, 0)
+        energies, opted = [], []
+        for n, s in ((1, s1), (2, s2), (3, s3)):
+            s.center(vacuum=cfg.vac_slab, axis=2)
+            s.name = "slab%d_trilayer_%s" % (n, tag)
+            E, s = self.engine.run(s, 'geom', s.name, dipolCorr='sc', FixCell=True, FixVol=0, nosymm=1, vac=cfg.vac_slab,
+                                   KPgrid_=cfg.kpgrid, fix_bottom_layers=cfg.fix_layers)
+            energies.append(E); opted.append(s)
+            self.write(s, s.name + "_opted")
+        sep12 = cfg.sep
+        sep23 = cfg.sep if cfg.sep2 is None else cfg.sep2
+        vac = cfg.vac_int
+        if vac < 4.0:
+            warn("Three-layer interface: vacuum %.1f A < 4 A would join slab 3 and slab 1 across the periodic boundary "
+                 "(an extra 3|1 interface); using 4 A on each side" % vac)
+            vac = 4.0
+        name = "trilayer_cuts_%s" % tag
+        stack = make_multilayer(opted, [sep12, sep23], vac)
+        stack.name = name
+        self.write(stack, name)
+        E_stack, stack = self.engine.run(stack, 'geom', name, dipolCorr='SC', FixCell=True, FixVol=0, nosymm=1, KPgrid_=cfg.kpgrid)
+        self.write(stack, name + "_opted")
+        area = surf_area(stack)
+        W = (sum(energies) - E_stack) / area / 0.01
+        self.report("W_ad_total (three-layer interface %s, W_ad(1|2) + W_ad(2|3)): %.2f eV/nm^2 = %.2f J/m^2\n" % (name, W, W * cfactor))
+        return TrilayerResult(name, *(float(e) for e in energies), float(sep12), float(sep23), float(E_stack), float(W), float(area))
+
+    def run_gb(self, atoms):
+        """Grain boundary of one material (cfg.gb = 'tilt' or 'twist', boundary plane cfg.miller1). Returns WorkflowResults.
+
+        The bicrystal contains two equivalent boundaries; it is optimised with a variable cell length along the normal
+        (ASE/ML engines; VASP relaxes the whole cell). gamma_GB = (E_bicrystal - N E_bulk/atom) / (2 A)."""
+        cfg = self.cfg
+        if cfg.gb not in ("tilt", "twist"):
+            raise ValueError("gb must be 'tilt' or 'twist', got '%s'" % cfg.gb)
+        if cfg.prim:
+            atoms = find_prim(atoms)
+        _log("Grain boundary (%s) of %s, boundary plane %s" % (cfg.gb, atoms.get_chemical_formula(empirical=1), tuple(cfg.miller1)))
+        atoms.name = 'bulk1'
+        E, self.bulk1 = self.engine.run(atoms, "geom", 'bulk1', dipolCorr='None', relax_cell=True)
+        self.Ebulk1 = E / len(self.bulk1)
+        self.results.E_bulk1, self.results.miller1 = self.Ebulk1, tuple(cfg.miller1)
+        self.write(self.bulk1, "bulk1_opted")
+        twist = sigma = None
+        mil = "".join(str(i) for i in cfg.miller1)
+        if cfg.gb == "tilt":
+            gb, _, _ = symmetric_tilt_gb(self.bulk1, cfg.miller1, creps=cfg.creps1 if cfg.creps1 > 1 else 2,
+                                         expansion=cfg.gb_expansion)
+            name = "gb_tilt_%s" % mil
+        else:
+            m, n = cfg.gb_mn
+            gb, _, _, twist, sigma = twist_gb(self.bulk1, cfg.miller1, m, n, creps=cfg.creps1 if cfg.creps1 > 1 else 2)
+            name = "gb_twist_%s_S%d" % (mil, sigma)
+            _log("Twist boundary: Sigma%d, twist angle %.2f deg" % (sigma, twist))
+        _log("Bicrystal %s: %d atoms, in-plane cell %.2f x %.2f A" % (name, len(gb), *gb.cell.lengths()[:2]))
+        warn_clashes(gb, name)
+        gb.name = name
+        self.write(gb, name)
+        E_gb, gb = self.engine.run(gb, 'geom', name, dipolCorr='None', FixCell=False, FixVol=0, nosymm=1, KPgrid_=cfg.kpgrid)
+        self.write(gb, name + "_opted")
+        area = surf_area(gb)
+        g = gb_energy(E_gb, len(gb), self.Ebulk1, area) / 0.01   #eV/A^2 to eV/nm^2
+        self.report("gamma_GB (%s): %.2f eV/nm^2 = %.3f J/m^2\n" % (name, g, g * cfactor))
+        self.results.grain_boundaries.append(GBResult(name, cfg.gb, tuple(cfg.miller1), len(gb), float(E_gb), float(g), float(area),
+                                                      None if twist is None else float(twist), sigma))
+        return self.results
+
+    # ------------------------------------------------------------------------------------------------ full run
+    def run(self, atoms1, atoms2=None, atoms3=None):
+        """Run the full workflow for two bulk structures (a third one gives three-layer interfaces; with cfg.gb only
+        atoms1 is used, for a grain boundary). Returns WorkflowResults (also written to <outdir>/results.json)."""
+        cfg = self.cfg
+        if atoms2 is None and not cfg.gb:
+            raise ValueError("run: a second bulk structure is needed (or set gb='tilt'/'twist' for a grain boundary)")
         backup_output(cfg.outdir)  #keep the previous output in <outdir>_prev
         self._outf = open(cfg.outfile, 'w')
         self._outf.write(time.strftime("%a %b %d %H:%M:%S %Z %Y") + "\n")
         t0 = time.time()
         try:
+            if cfg.gb:
+                self.run_gb(atoms1)
+                return self.results
             self.run_bulk(atoms1, atoms2)
             if cfg.check_surfaces:
                 self.screen_surfaces()
@@ -532,6 +679,13 @@ class InterfaceWorkflow:
                         res = self.run_pair(ci, slab1, cj, slab2, r1.sfe, r2.sfe)
                         if res is not None:
                             self.results.interfaces.append(res)
+                if atoms3 is not None:
+                    self.setup_material3(atoms3)
+                    for ci, slab1, _ in sel1:
+                        for cj, slab2, _ in sel2:
+                            res = self.run_trilayer(ci, slab1, cj, slab2, self.slab3)
+                            if res is not None:
+                                self.results.trilayers.append(res)
         finally:
             self._outf.close()
             self._outf = None
@@ -566,4 +720,5 @@ def config_from_args(args):
         miller_list=[tuple(m) for m in args.miller_list], conv_layers=args.convLayers, lay_min=args.lay_min, lay_max=args.lay_max,
         conv_sep=args.convSep, sep_init=args.sep_init, sep_final=args.sep_final, sep_step=args.sep_step, test_hori=args.test_hori,
         hor_steps=tuple(args.hor_steps), test_opt=args.test_opt, topt_maxiter=args.topt_maxiter, minkowski=args.minkowski, kpgrid=kpgrid, zero_chem_pots=(args.prog == 'ase'), dry=args.dry, surf_only=args.surf_only,
-        outdir=args.outdir, outfile=args.outfile, view=args.view, verbose=args.verb)
+        miller3=tuple(args.miller3), creps3=args.creps3 or 1, sep2=args.sep2, gb=args.gb, gb_mn=tuple(args.gb_mn),
+        gb_expansion=args.gb_expansion, outdir=args.outdir, outfile=args.outfile, view=args.view, verbose=args.verb)
