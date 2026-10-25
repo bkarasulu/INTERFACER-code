@@ -248,6 +248,47 @@ def checkHorizontal(slab1,slab2,sep,vac=None,steps=(0.25,0.25),ifPlot=0,engine=N
 
         return minInt,minE,minxy
 
-def checkHorizontal2(slab1,slab2,sep,vac=None): #This checks the optimum horizontal stacking of two slabs through translating the slab2
-        #TODO: complete this!! This is for doing scipy opt with respect to horizantal/vertical translations, getting SP energies.
-        raise NotImplementedError("checkHorizontal2: Not implemented yet, use checkHorizontal (-thor) instead.")
+def optimise_placement(slab1,slab2,sep0,xy0=(0.0,0.0),vac=None,engine=None,kpgrid=None,outdir="OUTPUT",maxiter=60,
+                       method="Nelder-Mead",sep_bounds=(0.5,6.0)):
+        """Optimise the placement of two rigid slabs (lateral shift x, y of slab1 in fractions of the cell vectors and the
+        separation sep) with scipy.optimize.minimize on single-point energies ("key-lock" model).
+
+        The vacuum padding is vac (default sep/2, i.e. two equivalent interfaces). Starts from (xy0, sep0), e.g. the best
+        point of checkHorizontal/convSep. Returns (interface, (x, y, sep), energy per atom)."""
+        from scipy.optimize import minimize
+        engine=_engine(engine)
+        history=[]
+        nat=len(slab1)+len(slab2)
+
+        def build(p):
+                x,y,sep=p
+                return make_interface(lateral_shift(slab1,(x,y)),slab2,sep,vac if vac else sep/2,reorder=True,check_clashes=False)
+
+        def energy(p):
+                x,y,sep=p
+                if not (sep_bounds[0] <= sep <= sep_bounds[1]):
+                        return 1e3+abs(sep-np.clip(sep,*sep_bounds))*1e3   #outside the allowed separations
+                interface=build(p)
+                interface.name='topt_%03d'%len(history)
+                E=engine.run(interface,"sp",_calc_name(engine,'topt_%03d'%len(history)),dipolCorr='None',KPgrid_=kpgrid)[0]/nat
+                history.append((x%1.0,y%1.0,sep,E))
+                debug("placement x= %.3f y= %.3f sep= %.3f A: E/atom= %.5f eV"%(x%1.0,y%1.0,sep,E))
+                return E
+
+        p0=np.array([xy0[0],xy0[1],sep0],float)
+        opts={"maxiter":maxiter,"xatol":1e-3,"fatol":1e-5} if method=="Nelder-Mead" else {"maxiter":maxiter}
+        if method=="Nelder-Mead":
+                opts["initial_simplex"]=np.array([p0,p0+[0.1,0,0],p0+[0,0.1,0],p0+[0,0,0.25]])
+        res=minimize(energy,p0,method=method,options=opts)
+        x,y,sep=res.x[0]%1.0,res.x[1]%1.0,float(res.x[2])
+        best=build((x,y,sep))
+        say("optimise_placement: x= %.3f, y= %.3f, sep= %.3f A, E= %.5f eV/atom after %d single points"%(x,y,sep,res.fun,len(history)))
+        write_struct(best,"interface-placement_opt",engine,outdir)
+        if history:
+                np.savetxt(os.path.join(outdir,"placement_opt.csv"),np.array(history),delimiter=",",header="x,y,sep(A),E_per_atom(eV)",comments="")
+        return best,(x,y,sep),float(res.fun)
+
+def checkHorizontal2(slab1,slab2,sep,vac=None,**kw): #This checks the optimum horizontal stacking of two slabs through translating the slab2
+        """Optimisation of the slab placement with scipy (see optimise_placement); returns (interface, energy per atom, [x, y])."""
+        interface,(x,y,s),E=optimise_placement(slab1,slab2,sep,vac=vac,**kw)
+        return interface,E,[x,y]

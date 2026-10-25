@@ -740,6 +740,24 @@ def prepare_cell_for_vasp(atoms):
         if changed: debug("prepare_cell_for_vasp: cell "+", ".join(changed))
         return atoms
 
+def reduce_inplane_pair(slab1, slab2):
+        """2D Minkowski (Gauss) reduction of the common in-plane cell of two aligned slabs: the shortest, most orthogonal
+        basis of slab1's in-plane lattice is found and the same integer transformation is applied to both slabs
+        (their in-plane cells are matched, so both describe the same supercell). Returns (slab1, slab2)."""
+        a=[slab1.cell[0][i] for i in range(0,2)]
+        b=[slab1.cell[1][i] for i in range(0,2)]
+        a2,b2=acute_Gauss(a,b)
+        M=[np.rint(basis_change([a,b],[a2,b2],[1,0])), np.rint(basis_change([a,b],[a2,b2],[0,1]))]
+        if abs(round(np.linalg.det(np.array(M))))!=1:
+                return slab1, slab2  #not a unimodular change (should not happen for a lattice reduction)
+        out=[]
+        for slab in (slab1,slab2):
+                new=cut_cell(slab,np.append(M[0],0),np.append(M[1],0),(0,0,1))
+                if np.dot(new.cell[2],np.cross(new.cell[0],new.cell[1])) < 0:
+                        new=flip_handedness(new)
+                out.append(new)
+        return out[0], out[1]
+
 def flip_cell(interface): #TODO: check if the resulting cross (triple) product of the resulting cell vectors is positive (whhich a an issue for VASP). THen it should not flip the cell
         #Flip a cell that extends towards -z (VASP cannot work with negative z coordinates).
         cell=interface.get_cell()

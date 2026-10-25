@@ -30,8 +30,8 @@ import numpy as np
 from ase.build import niggli_reduce
 
 from .analysis import calculate_chem_pots, calculate_SFE, find_prim, interface_energy, sfe_vs_chempot, get_fu, is_stoichiometric, misfit, surf_area, warn_clashes
-from .builder import make_interface, make_slab, permute_surface, slab_aligner, standardise_slab
-from .convergence import cfactor, check_surfaces, checkHorizontal, conv_layers, convSep
+from .builder import make_interface, make_slab, permute_surface, reduce_inplane_pair, slab_aligner, standardise_slab
+from .convergence import cfactor, check_surfaces, checkHorizontal, conv_layers, convSep, optimise_placement
 from .io import backup_output, write_struct
 from .log import ensure_logging, say
 
@@ -87,6 +87,9 @@ class WorkflowConfig:
     sep_step: float = 0.25                # (-sep_step)
     test_hori: bool = False               # lateral translation scan (-thor)
     hor_steps: tuple = (0.25, 0.25)       # (-hor_steps)
+    test_opt: bool = False                # scipy optimisation of the rigid-slab placement (x, y, sep) (-topt)
+    topt_maxiter: int = 60                # (--topt_maxiter)
+    minkowski: bool = False               # 2D Minkowski reduction of the matched in-plane cell (--minkowski)
     # calculations
     kpgrid: Optional[str] = None          # k-point grid for slabs/interfaces, e.g. '4 4 1' (-kp_gr, -gamma)
     zero_chem_pots: bool = False          # use zero chemical potentials for non-stoichiometric slabs (test runs only)
@@ -367,6 +370,9 @@ class InterfaceWorkflow:
         _log("\nAligning the two slabs...")
         s1, s2 = slab_aligner(slab1.copy(), slab2.copy(), cfg.init_length, cfg.max_slab_dimension, cfg.step_length,
                               cfg.percentage_tolerance, cfg.thickness, self.bulk1, self.bulk2)
+        if cfg.minkowski:
+            s1, s2 = reduce_inplane_pair(s1, s2)
+            _log("Matched in-plane cell reduced (2D Minkowski): a = %.2f A, b = %.2f A, gamma = %.1f deg" % tuple(s1.cell.cellpar()[[0, 1, 5]]))
         return s1, s2, m0, misfit(s1, s2)
 
     def optimise_aligned(self, slab1, slab2, ci, cj):
@@ -466,6 +472,13 @@ class InterfaceWorkflow:
             interface, sep = convSep(slab1_o, slab2_o, vac=None, sep_init=cfg.sep_init, sep_final=cfg.sep_final, sep_step=cfg.sep_step,
                                      view=0, ifPlot=1, engine=self.engine, kpgrid=cfg.kpgrid, outdir=cfg.outdir, shift=shift)
             vac_used = sep / 2
+        if cfg.test_opt:
+            _log("\n\nOptimising the placement of the rigid slabs (x, y, separation) with scipy.")
+            interface, (x, y, sep), _ = optimise_placement(slab1_o, slab2_o, sep, xy0=tuple(shift) if shift else (0.0, 0.0),
+                                                           engine=self.engine, kpgrid=cfg.kpgrid, outdir=cfg.outdir,
+                                                           maxiter=cfg.topt_maxiter)
+            shift = [x, y]
+            vac_used = sep / 2
         if cfg.niggli:
             _log("Niggli reduce the interface...")
             niggli_reduce(interface)
@@ -473,7 +486,7 @@ class InterfaceWorkflow:
 
         name = 'interface_cuts_%s_%s' % (ci, cj)
         interface, Eint, Wad, n_int = self.optimise_interface(interface, name, vac_used, E1, E2,
-                                                              fix_cell=(cfg.conv_sep or cfg.test_hori))
+                                                              fix_cell=(cfg.conv_sep or cfg.test_hori or cfg.test_opt))
         self.write(interface, name + "_opted")
         ase.io.write(os.path.join(cfg.outdir, name + "_opted.cif"), interface, format='cif')
         # interface energy (Dupre): gamma_int = gamma_1 + gamma_2 - W_ad; for non-stoichiometric slabs the surface
@@ -552,5 +565,5 @@ def config_from_args(args):
         vac_int=args.vac_int, sep=args.sep, niggli=args.niggli, check_surfaces=args.checkSurfs,
         miller_list=[tuple(m) for m in args.miller_list], conv_layers=args.convLayers, lay_min=args.lay_min, lay_max=args.lay_max,
         conv_sep=args.convSep, sep_init=args.sep_init, sep_final=args.sep_final, sep_step=args.sep_step, test_hori=args.test_hori,
-        hor_steps=tuple(args.hor_steps), kpgrid=kpgrid, zero_chem_pots=(args.prog == 'ase'), dry=args.dry, surf_only=args.surf_only,
+        hor_steps=tuple(args.hor_steps), test_opt=args.test_opt, topt_maxiter=args.topt_maxiter, minkowski=args.minkowski, kpgrid=kpgrid, zero_chem_pots=(args.prog == 'ase'), dry=args.dry, surf_only=args.surf_only,
         outdir=args.outdir, outfile=args.outfile, view=args.view, verbose=args.verb)
