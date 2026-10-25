@@ -66,7 +66,7 @@ Every option except `--input`, `--save_input`, `--help` and `--version` can also
 
 | Option | Default | Description |
 |---|---|---|
-| `-prog`, `--prog` {castep,vasp,ase,mlip} |  | Code to be used: CASTEP, VASP, ASE (simple LJ/Morse/EMT potentials, see -ase_pot) or MLIP (machine-learning potentials, see --mlip) |
+| `-prog`, `--prog` {castep,vasp,ase,mlip,gpaw,onetep} |  | Code to be used: CASTEP, VASP, ASE (simple LJ/Morse/EMT potentials, see -ase_pot), MLIP (machine-learning potentials, see --mlip), GPAW or ONETEP (through ASE, see --calc_kwargs) |
 | `-xc`, `--xc` | `PBE` | Exchange correlation functional to use (pseudopots will be selected accordingly, e.g. LDA, PBE,PBEsol, etc. Def: PBE |
 | `-ec`, `--encut` | `520` | Cutoff energy for the planewaves Def: 520 eV |
 | `-kp_sp`, `--kpspacing` | `0.32` | KP grid spacing, Def: 0.05 * 2 pi = 0.32 1/A |
@@ -99,7 +99,7 @@ Every option except `--input`, `--save_input`, `--help` and `--version` can also
 
 | Option | Default | Description |
 |---|---|---|
-| `-dry`, `--dry` |  | Make a dry run, do not run CASTEP/VASP calculation. Good for checking the slabs and the interfacing algorithm. |
+| `-dry`, `--dry`, `--structures_only` |  | Dry run / structures only: build and write all structures (and VASP/CASTEP inputs) without running any calculation, for all codes. Good for checking the slabs and the interfacing algorithm. |
 | `-view`, `--view` |  | To view the generated structures. |
 | `-v`, `--verb` |  | Verbose output: also show details (supercell search, optimiser steps, passivation, ...). Default: False. |
 | `-q`, `--quiet` |  | Only show warnings and errors. Default: False. |
@@ -121,6 +121,8 @@ Every option except `--input`, `--save_input`, `--help` and `--version` can also
 | `--mlip_model` |  | Model name or path for --mlip, e.g. 'medium-mpa-0' or 'my.model' (MACE), '7net-0' (SevenNet), 'uma-s-1' (fairchem). Def: the backend default |
 | `--device` | `auto` | Device for the machine-learning potential: cpu, cuda, mps or auto. Def: auto (GPU if available) |
 | `--mlip_kwargs` |  | Extra keyword arguments for the ML potential calculator as a Python dict, e.g. "{'default_dtype': 'float32'}" or "{'task_name': 'omat'}". Def: none |
+| `--fix_mode` {bottom,middle} | `bottom` | Which layers --fix_layers keeps fixed: the lowest ones or the central (bulk-like) ones. Def: bottom |
+| `--calc_kwargs` |  | Extra settings for -prog gpaw/onetep as a Python dict, e.g. "{'spinpol': True}" (GPAW) or "{'keywords': {'maxit_ngwf_cg': 50}, 'ngwfs_radius': 8.0}" (ONETEP). Def: none |
 | `--fix_layers` |  | Keep the lowest N atomic layers of the slabs fixed in the slab optimisations (bulk-like region). Def: 0 |
 | `--restart` |  | Reuse finished calculations, also of the convergence tests (VASP/CASTEP: default; ASE/MLIP: results are kept in ASE-calcs/ and reused if the input structure and settings are unchanged). |
 | `--overwrite` |  | Redo all calculations; existing VASP run directories and CASTEP outputs are moved to *_old<n> (not deleted). |

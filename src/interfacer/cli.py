@@ -104,7 +104,7 @@ def build_parser():
     parser.add_argument("-hor_steps", "--hor_steps", default=[0.25,0.25], nargs=2, type=float, help='Horizontal translations (relative to lattice vectors) of bottom layer in x and y directions for slab placement test (--test_hori), def: [0.25, 0.25]]')
 
     #Calculation related keywords
-    parser.add_argument("-prog", "--prog", choices=['castep','vasp','ase','mlip'], type=str.lower, required=1, help="Code to be used: CASTEP, VASP, ASE (simple LJ/Morse/EMT potentials, see -ase_pot) or MLIP (machine-learning potentials, see --mlip)")
+    parser.add_argument("-prog", "--prog", choices=['castep','vasp','ase','mlip','gpaw','onetep'], type=str.lower, required=1, help="Code to be used: CASTEP, VASP, ASE (simple LJ/Morse/EMT potentials, see -ase_pot), MLIP (machine-learning potentials, see --mlip), GPAW or ONETEP (through ASE, see --calc_kwargs)")
     parser.add_argument("-xc", "--xc", default='PBE', type=str, required=False, help='Exchange correlation functional to use (pseudopots will be selected accordingly, e.g. LDA, PBE,PBEsol, etc. Def: PBE')
     parser.add_argument("-ec", "--encut", default=520, type=float, required=False, help='Cutoff energy for the planewaves Def: 520 eV')
     parser.add_argument("-kp_sp", "--kpspacing", default=0.32, type=float, required=False, help='KP grid spacing, Def: 0.05 * 2 pi = 0.32 1/A')
@@ -133,7 +133,7 @@ def build_parser():
     parser.add_argument("-mpiargs", "--mpiargs", default='', type=str, required=False, help='Extra arguments for srun/mpirun, e.g. "--partition=<name>". No default value.')
 
     #Other general keywords
-    parser.add_argument("-dry", "--dry", default=False, action="store_true", help="Make a dry run, do not run CASTEP/VASP calculation. Good for checking the slabs and the interfacing algorithm.")
+    parser.add_argument("-dry", "--dry", "--structures_only", dest="dry", default=False, action="store_true", help="Dry run / structures only: build and write all structures (and VASP/CASTEP inputs) without running any calculation, for all codes. Good for checking the slabs and the interfacing algorithm.")
     parser.add_argument("-view", "--view", default=False, action="store_true", help="To view the generated structures.")
     parser.add_argument("-v", "--verb", default=False, action='store_true', help='Verbose output: also show details (supercell search, optimiser steps, passivation, ...). Default: False.')
     parser.add_argument("-q", "--quiet", default=False, action='store_true', help='Only show warnings and errors. Default: False.')
@@ -149,6 +149,8 @@ def build_parser():
     parser.add_argument("--mlip_model", default=None, type=str, help="Model name or path for --mlip, e.g. 'medium-mpa-0' or 'my.model' (MACE), '7net-0' (SevenNet), 'uma-s-1' (fairchem). Def: the backend default")
     parser.add_argument("--device", default="auto", type=str, help="Device for the machine-learning potential: cpu, cuda, mps or auto. Def: auto (GPU if available)")
     parser.add_argument("--mlip_kwargs", default=None, type=str, help="Extra keyword arguments for the ML potential calculator as a Python dict, e.g. \"{'default_dtype': 'float32'}\" or \"{'task_name': 'omat'}\". Def: none")
+    parser.add_argument("--fix_mode", default="bottom", choices=["bottom","middle"], help="Which layers --fix_layers keeps fixed: the lowest ones or the central (bulk-like) ones. Def: bottom")
+    parser.add_argument("--calc_kwargs", default=None, type=str, help="Extra settings for -prog gpaw/onetep as a Python dict, e.g. \"{'spinpol': True}\" (GPAW) or \"{'keywords': {'maxit_ngwf_cg': 50}, 'ngwfs_radius': 8.0}\" (ONETEP). Def: none")
     parser.add_argument("--fix_layers", default=0, type=int, help="Keep the lowest N atomic layers of the slabs fixed in the slab optimisations (bulk-like region). Def: 0")
     restart=parser.add_mutually_exclusive_group()
     restart.add_argument("--restart", dest="restart", default=None, action="store_true", help="Reuse finished calculations, also of the convergence tests (VASP/CASTEP: default; ASE/MLIP: results are kept in ASE-calcs/ and reused if the input structure and settings are unchanged).")
@@ -259,7 +261,8 @@ def _toml_value(v):
 def make_settings(args):
         """CalcSettings (and the VASP command) from the parsed command-line arguments."""
         exe=None
-        if args.prog=='vasp':
+        if args.prog=='vasp' or (args.prog=='onetep' and not os.environ.get('ONETEP_COMMAND')):
+                if args.prog=='onetep' and args.vexe=='vasp_std': args.vexe=os.environ.get('ONETEP_EXE','onetep.exe')
                 if args.mpirun: exe="mpirun -n %d %s %s"%(args.nprocs,args.mpiargs,args.vexe)
                 else: exe="srun -n %d %s %s"%(args.nprocs,args.mpiargs,args.vexe)
                 exe=" ".join(exe.split())
@@ -270,10 +273,15 @@ def make_settings(args):
                 try: mlip_kwargs=ast.literal_eval(args.mlip_kwargs)
                 except (ValueError,SyntaxError): raise ValueError("Cannot parse --mlip_kwargs '%s' (expected a Python dict)"%args.mlip_kwargs)
                 if not isinstance(mlip_kwargs,dict): raise ValueError("--mlip_kwargs must be a Python dict, got '%s'"%args.mlip_kwargs)
+        calc_kwargs={}
+        if args.calc_kwargs:
+                try: calc_kwargs=ast.literal_eval(args.calc_kwargs)
+                except (ValueError,SyntaxError): raise ValueError("Cannot parse --calc_kwargs '%s' (expected a Python dict)"%args.calc_kwargs)
+                if not isinstance(calc_kwargs,dict): raise ValueError("--calc_kwargs must be a Python dict")
         settings=CalcSettings(encut=args.encut,kpspacing=args.kpspacing,xc=args.xc,sigma=args.sigma,hubU=parse_hubbard_u(args.hubU),
                               magmoms=args.magmoms,exe=exe,castep_pp=args.castep_PP,dry=args.dry,ase_pot=args.ase_pot,
                               fmax=args.ase_fmax,steps=args.ase_gsteps,optimiser=args.optimiser,relax_cell_bulk=relax_cell_bulk,
-                              outdir=args.outdir,restart=args.restart,overwrite=args.overwrite,mlip=args.mlip,mlip_model=args.mlip_model,device=args.device,mlip_kwargs=mlip_kwargs)
+                              outdir=args.outdir,fix_mode=args.fix_mode,calc_kwargs=calc_kwargs,restart=args.restart,overwrite=args.overwrite,mlip=args.mlip,mlip_model=args.mlip_model,device=args.device,mlip_kwargs=mlip_kwargs)
         if args.prog == 'castep': #read the cutoff/k-point spacing from the CASTEP input files, if present
                 try:
                         import ase.calculators.castep

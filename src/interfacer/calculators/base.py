@@ -22,6 +22,8 @@ class CalcSettings:
     steps: int = 200                     # max optimisation steps
     optimiser: str = "BFGS"              # BFGS, FIRE or LBFGS
     relax_cell_bulk: bool = False        # relax the cell of bulk structures (ASE engines)
+    fix_mode: str = "bottom"             # layers kept fixed with fix_bottom_layers: 'bottom' or 'middle' (bulk-like centre)
+    calc_kwargs: dict = field(default_factory=dict)  # extra settings for GPAW/ONETEP (-prog gpaw/onetep)
     # machine-learning potentials (-prog mlip)
     mlip: str = "mace"                   # backend, see interfacer.calculators.mlip
     mlip_model: Optional[str] = None     # model name or path (backend default if None)

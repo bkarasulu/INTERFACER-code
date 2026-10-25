@@ -11,7 +11,7 @@ from .base import CalcSettings, Engine, backup_path
 from .castep import call_castep
 from .classical import classical_calculator
 from .mlip import lazy_calculator_factory
-from .optimise import bottom_layer_indices, relax
+from .optimise import fixed_layer_indices, relax
 from .vasp import call_vasp
 from ..log import say
 
@@ -32,7 +32,7 @@ class VaspEngine(Engine):
             # call_vasp reuses/continues an existing run in its directory; to start afresh, move the old run aside
             say("Existing run in %s moved to %s (--overwrite)" % (name, backup_path(name)))
         if fix_bottom_layers:  # written as selective dynamics in the POSCAR
-            atoms.set_constraint(FixAtoms(indices=bottom_layer_indices(atoms, fix_bottom_layers)))
+            atoms.set_constraint(FixAtoms(indices=fixed_layer_indices(atoms, fix_bottom_layers, s.fix_mode)))
         return call_vasp(atoms, typ=typ, dipolCorr=dipolCorr, name=name, ENCUT=s.encut, KPgrid=KPgrid_, KPspacing=s.kpspacing,
                          hubU=s.hubU, FixCell=FixCell, FixVol=FixVol, xc=s.xc, passivate=passivate, nosymm=nosymm, vac=vac,
                          magmom=s.magmoms, sigma=s.sigma, exe=s.exe, dry=s.dry, slowConv=0, gamma=1)
@@ -61,7 +61,7 @@ class CastepEngine(Engine):
                     say("Finished CASTEP run %s.castep found, reading the results (use --overwrite to redo it)" % seed)
                     return x
         kpkw = {"KPgrid": KPgrid_} if KPgrid_ else {"KPspacing": s.kpspacing}
-        fixlist = bottom_layer_indices(atoms, fix_bottom_layers) if fix_bottom_layers else []
+        fixlist = fixed_layer_indices(atoms, fix_bottom_layers, s.fix_mode) if fix_bottom_layers else []
         return call_castep(atoms, typ=typ, dipolCorr=dipolCorr, name=name, ENCUT=s.encut, PP=s.castep_pp, hubU=s.hubU,
                            FixCell=FixCell, FixList=fixlist, ifDryRun=s.dry, **kpkw)
 
@@ -103,6 +103,10 @@ class AseEngine(Engine):
         self.calculator_factory = calculator_factory
         self.label = label
 
+    def calculator_for(self, name, atoms, kpgrid=None):
+        """The calculator for one calculation (subclasses for DFT codes use the name for the run directory)."""
+        return self.get_calculator()
+
     def get_calculator(self):
         f = self.calculator_factory
         if isinstance(f, type) or (callable(f) and not hasattr(f, "get_potential_energy")):
@@ -131,7 +135,12 @@ class AseEngine(Engine):
                     hit.name = atoms.name
                 return hit.get_potential_energy(), hit
 
-        calc = self.get_calculator()
+        if s.dry:  # structures only: no calculation
+            say("Dry run: no %s calculation for %s" % (self.label, name))
+            atoms.calc = None
+            return 0.0, atoms
+
+        calc = self.calculator_for(name, atoms, KPgrid_)
         formula = atoms.get_chemical_formula(empirical=1)
         if not opt:
             say("Getting SP energy using ASE/%s" % self.label)
@@ -142,7 +151,7 @@ class AseEngine(Engine):
             say("Optimising the %s structure using ASE/%s%s" % (formula, self.label, note))
             traj = os.path.join(s.outdir, "%s_opt.traj" % os.path.basename(getattr(atoms, "name", name) or name)) if s.outdir else None
             E, atoms = relax(atoms, calc, fmax=s.fmax, steps=s.steps, optimiser=s.optimiser, relax_cell=cell,
-                             fix_bottom_layers=fix_bottom_layers, trajectory=traj, cell_mask=mask)
+                             fix_bottom_layers=fix_bottom_layers, trajectory=traj, cell_mask=mask, fix_mode=s.fix_mode)
         _freeze_results(atoms, calc)
         if cache:
             self._save_cache(cache, key, atoms)
@@ -151,7 +160,7 @@ class AseEngine(Engine):
     def _fingerprint(self, atoms, opt, cell, mask, fix_bottom_layers):
         #Identifies a calculation: input structure, potential and optimiser settings.
         s = self.settings
-        data = {"label": self.label, "opt": bool(opt), "cell": cell, "mask": mask, "fix": int(fix_bottom_layers or 0),
+        data = {"label": self.label, "opt": bool(opt), "cell": cell, "mask": mask, "fix": int(fix_bottom_layers or 0), "fix_mode": s.fix_mode,
                 "fmax": s.fmax, "steps": s.steps, "optimiser": s.optimiser, "numbers": atoms.numbers.tolist(),
                 "pos": np.round(atoms.positions, 4).tolist(), "lattice": np.round(atoms.cell[:], 4).tolist()}
         return hashlib.sha1(json.dumps(data, sort_keys=True).encode()).hexdigest()
@@ -193,12 +202,73 @@ def _freeze_results(atoms, calc):
     atoms.calc = SinglePointCalculator(atoms, **res)
 
 
-ENGINES = ("vasp", "castep", "ase", "mlip")
+class GpawEngine(AseEngine):
+    """GPAW (plane-wave mode) through ASE, with the shared ASE optimiser. Output in GPAW-tmp/<name>.txt.
+
+    Uses settings.encut (plane-wave cutoff, eV), xc, sigma (Fermi-Dirac smearing, eV), kpspacing (k-point density
+    1/kpspacing, as KSPACING in VASP) or the k-point grid of the calculation, and settings.calc_kwargs (any GPAW keyword,
+    e.g. {'spinpol': True, 'parallel': {...}})."""
+    name = "gpaw"
+    tmpdir = ""
+
+    def __init__(self, settings=None):
+        super().__init__(None, label="GPAW", settings=settings)
+
+    def get_calculator(self):
+        return self.calculator_for("gpaw", None)
+
+    def calculator_for(self, name, atoms, kpgrid=None):
+        try:
+            from gpaw import GPAW, PW, FermiDirac
+        except ImportError as err:
+            raise ImportError("-prog gpaw needs GPAW (e.g. conda install -c conda-forge gpaw): %s" % err) from err
+        s = self.settings
+        kpts = tuple(int(x) for x in kpgrid.split()) if kpgrid else {"density": 1.0 / s.kpspacing, "gamma": True}
+        os.makedirs("GPAW-tmp", exist_ok=True)
+        kw = dict(mode=PW(s.encut), xc=s.xc, kpts=kpts, occupations=FermiDirac(s.sigma),
+                  txt=os.path.join("GPAW-tmp", "%s.txt" % name.replace(os.sep, "__")))
+        kw.update(s.calc_kwargs)
+        return GPAW(**kw)
+
+
+class OnetepEngine(AseEngine):
+    """ONETEP (linear-scaling DFT) through ASE, with the shared ASE optimiser. Each calculation runs in ONETEP-tmp/<name>.
+
+    The command is taken from settings.exe or $ONETEP_COMMAND (e.g. 'mpirun -n 64 onetep.exe'), the pseudopotential
+    directory from $ONETEP_PP_PATH (or calc_kwargs['pseudo_path']). settings.encut and xc set cutoff_energy and
+    xc_functional; settings.calc_kwargs can hold 'keywords' (further ONETEP keywords), 'ngwfs_count', 'ngwfs_radius'
+    and 'pseudopotentials' (see ase.calculators.onetep.Onetep)."""
+    name = "onetep"
+    tmpdir = ""
+
+    def __init__(self, settings=None):
+        super().__init__(None, label="ONETEP", settings=settings)
+
+    def get_calculator(self):
+        return self.calculator_for("onetep", None)
+
+    def calculator_for(self, name, atoms, kpgrid=None):
+        from ase.calculators.onetep import Onetep, OnetepProfile
+        s = self.settings
+        extra = dict(s.calc_kwargs)
+        command = s.exe or os.environ.get("ONETEP_COMMAND", "onetep.exe")
+        pseudo_path = extra.pop("pseudo_path", os.environ.get("ONETEP_PP_PATH", "."))
+        keywords = {"cutoff_energy": "%g eV" % s.encut, "xc_functional": s.xc, "write_forces": True}
+        keywords.update(extra.pop("keywords", {}))
+        extra.setdefault("ngwfs_count", -1)      # automatic number of NGWFs per species
+        extra.setdefault("ngwfs_radius", 9.0)    # bohr
+        directory = os.path.join("ONETEP-tmp", name.replace(os.sep, "__"))
+        os.makedirs(directory, exist_ok=True)
+        return Onetep(profile=OnetepProfile(command=command, pseudo_path=pseudo_path), directory=directory,
+                      keywords=keywords, **extra)
+
+
+ENGINES = ("vasp", "castep", "ase", "mlip", "gpaw", "onetep")
 
 
 def get_engine(prog, settings=None):
-    """Return the engine for a code name: 'vasp', 'castep', 'ase' (the simple potential settings.ase_pot) or
-    'mlip' (the machine-learning potential settings.mlip with settings.mlip_model on settings.device)."""
+    """Return the engine for a code name: 'vasp', 'castep', 'ase' (the simple potential settings.ase_pot),
+    'mlip' (the machine-learning potential settings.mlip with settings.mlip_model on settings.device), 'gpaw' or 'onetep'."""
     settings = settings if settings is not None else CalcSettings()
     prog = prog.lower()
     if prog == "vasp":
@@ -213,4 +283,8 @@ def get_engine(prog, settings=None):
         engine = AseEngine(factory, label=label, settings=settings)
         engine.name = "mlip"
         return engine
+    if prog == "gpaw":
+        return GpawEngine(settings)
+    if prog == "onetep":
+        return OnetepEngine(settings)
     raise ValueError("Unknown code '%s'; choose from %s" % (prog, ", ".join(ENGINES)))

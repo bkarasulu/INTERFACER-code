@@ -38,8 +38,36 @@ def bottom_layer_indices(atoms, n_layers, tol=0.3):
     return sorted(int(i) for layer in layers[:n_layers] for i in layer)
 
 
+def middle_layer_indices(atoms, n_layers, tol=0.3):
+    """Indices of the atoms in the n_layers central atomic layers along the surface normal (a bulk-like region)."""
+    if n_layers <= 0:
+        return []
+    normal = np.cross(atoms.cell[0], atoms.cell[1])
+    normal = normal / np.linalg.norm(normal)
+    h = atoms.positions @ normal
+    order = np.argsort(h)
+    layers = []
+    for i in order:
+        if layers and abs(h[i] - h[layers[-1][0]]) < tol:
+            layers[-1].append(i)
+        else:
+            layers.append([i])
+    n = min(n_layers, len(layers))
+    start = (len(layers) - n) // 2
+    return sorted(int(i) for layer in layers[start:start + n] for i in layer)
+
+
+def fixed_layer_indices(atoms, n_layers, mode="bottom", tol=0.3):
+    """Indices of the atoms to keep fixed: the lowest ('bottom') or central ('middle') n_layers atomic layers."""
+    if mode == "bottom":
+        return bottom_layer_indices(atoms, n_layers, tol)
+    if mode == "middle":
+        return middle_layer_indices(atoms, n_layers, tol)
+    raise ValueError("fix mode must be 'bottom' or 'middle', got '%s'" % mode)
+
+
 def relax(atoms, calc, fmax=0.05, steps=200, optimiser="BFGS", relax_cell=False, fix_bottom_layers=0,
-          trajectory=None, logfile=None, cell_mask=None):
+          trajectory=None, logfile=None, cell_mask=None, fix_mode="bottom"):
     """Relax `atoms` in place with an ASE optimiser and return (energy, atoms).
 
     Args:
@@ -51,14 +79,15 @@ def relax(atoms, calc, fmax=0.05, steps=200, optimiser="BFGS", relax_cell=False,
         relax_cell (bool): also relax the cell (FrechetCellFilter, e.g. for bulk structures).
         cell_mask (list): Voigt mask of the cell degrees of freedom to relax (xx, yy, zz, yz, xz, xy), e.g.
             [0, 0, 1, 0, 0, 0] to relax only the length along z; implies relax_cell. Default: all.
-        fix_bottom_layers (int): number of bottom atomic layers to keep fixed (for slabs).
+        fix_bottom_layers (int): number of atomic layers to keep fixed (for slabs), see fix_mode.
+        fix_mode (str): 'bottom' (lowest layers) or 'middle' (central, bulk-like layers).
         trajectory (str): optional trajectory file name.
         logfile: optimiser log ('-' = stdout); default: stdout with -v, otherwise only a one-line summary.
     """
     atoms.calc = calc
     constraints_before = atoms.constraints
     if fix_bottom_layers:
-        atoms.set_constraint(constraints_before + [FixAtoms(indices=bottom_layer_indices(atoms, fix_bottom_layers))])
+        atoms.set_constraint(constraints_before + [FixAtoms(indices=fixed_layer_indices(atoms, fix_bottom_layers, fix_mode))])
 
     target = atoms
     if relax_cell or cell_mask is not None:
