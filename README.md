@@ -1,6 +1,6 @@
 # INTERFACER
 
-INTERFACER builds solid–solid interfaces from two bulk crystal structures and computes their surface and interface energetics. It works with VASP, CASTEP or ASE calculators.
+INTERFACER builds solid–solid interfaces from two bulk crystal structures and computes their surface and interface energetics. It works with VASP, CASTEP, GPAW and ONETEP, with machine-learning interatomic potentials such as MACE, and with any ASE calculator. It also builds grain boundaries and three-layer interfaces.
 
 It runs the following workflow:
 
@@ -8,8 +8,10 @@ It runs the following workflow:
 2. Optionally screen surfaces (`-tsur`) and converge the slab thickness (`-tlay`).
 3. Cut slabs, with optional symmetric terminations (`-sym_slabs1/2`), and compute their surface formation energies.
 4. Find a commensurate supercell of the two slabs and stack them into an interface.
-5. Optionally scan the interlayer separation (`-tsep`) and the lateral registry (`-thor`).
-6. Optimise the interface and report the work of adhesion.
+5. Optionally scan the lateral registry (`-thor`) and the interlayer separation (`-tsep`), or optimise the slab placement (`-topt`).
+6. Optimise the interface and report the work of adhesion and the interface energy.
+
+With `-i3` a third material gives slab1 | slab2 | slab3 stacks. With `--gb tilt|twist`, symmetric tilt and twist grain boundaries of one material are built instead.
 
 ## Installation
 
@@ -26,6 +28,8 @@ To run DFT, set up the code through ASE:
 
 - **VASP:** set `VASP_PP_PATH` and either pass the MPI options (`-np`, `-mpi`, `-mpiargs`, `-vexe`) or set `VASP_COMMAND`.
 - **CASTEP:** set `CASTEP_COMMAND` and `CASTEP_PP_PATH`.
+- **GPAW:** install GPAW, for example with `conda install -c conda-forge gpaw`.
+- **ONETEP:** set `ONETEP_COMMAND` (or use `-np`/`-mpi`) and `ONETEP_PP_PATH`.
 
 ## Quick start
 
@@ -36,7 +40,10 @@ interfacer -i1 Cu.cif -i2 Ni.cif -m1 1 1 1 -m2 1 1 1 -prog ase -ase_pot EMT
 # with a machine-learning potential (MACE-MP-0 foundation model; GPU used if available)
 interfacer -i1 Cu.cif -i2 Ni.cif -m1 1 1 1 -m2 1 1 1 -prog mlip --mlip mace --mlip_model medium-mpa-0 -tsep -thor
 
-# the same with VASP, including separation and lateral-shift scans
+# a Sigma5 (310) symmetric tilt grain boundary of Cu
+interfacer -i1 Cu.cif -m1 3 1 0 -cr1 3 --gb tilt -prog ase -ase_pot EMT
+
+# the same interface with VASP, including separation and lateral-shift scans
 interfacer -i1 Cu.cif -i2 Ni.cif -m1 1 1 1 -m2 1 1 1 -prog vasp -kp_gr "4 4 1" -tsep -thor -mpi -np 64
 ```
 
@@ -55,6 +62,9 @@ The tutorials in [`Tutorials/`](Tutorials/README.md) are:
 3. Symmetric slabs and surface formation energies.
 4. β-Li3PS4|Li with VASP.
 5. The Python API (script and notebook).
+6. Grain boundaries and three-layer interfaces with EMT.
+
+Tutorials 1, 2, 3 and 6 include an `analysis.ipynb` notebook.
 
 ## Documentation
 
@@ -65,3 +75,13 @@ The full documentation is built with `pip install -e ".[docs]" && mkdocs serve`.
 - `docs/mlip.md`: machine-learning potentials (MACE, CHGNet, MatGL, SevenNet, ORB, fairchem/UMA, NequIP/Allegro, custom).
 - `docs/package_layout.md`: package layout, Python API and migration from the old scripts.
 - `docs/known_issues.md`: fixed bugs and open issues.
+
+## Citing INTERFACER
+
+If you use INTERFACER, please cite it; see [`CITATION.cff`](CITATION.cff) (GitHub shows it under "Cite this repository"). A paper describing the code is in preparation for the Journal of Open Source Software (`paper/`).
+
+## Licence
+
+INTERFACER is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. See [`LICENSE`](LICENSE).
+
+Contributions are welcome; see [`CONTRIBUTING.md`](CONTRIBUTING.md).

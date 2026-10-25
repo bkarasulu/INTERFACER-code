@@ -1,5 +1,6 @@
 """Shared ASE geometry optimiser used by all ASE-based engines (classical potentials and, later, ML potentials)."""
 import os
+import warnings
 
 import numpy as np
 from ase.constraints import FixAtoms
@@ -102,7 +103,9 @@ def relax(atoms, calc, fmax=0.05, steps=200, optimiser="BFGS", relax_cell=False,
         logfile = "-"
     opt = get_optimiser(optimiser)(target, trajectory=trajectory, logfile=logfile)
     try:
-        converged = opt.run(fmax=fmax, steps=steps)
+        with warnings.catch_warnings():   # harmless round-off notes of scipy's logm in FrechetCellFilter
+            warnings.filterwarnings("ignore", message="logm result may be inaccurate")
+            converged = opt.run(fmax=fmax, steps=steps)
     except Exception as err:
         warn("relax: WARNING: optimisation failed (returning the energy of the last geometry): %s" % err)
         converged = False

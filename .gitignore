@@ -37,3 +37,6 @@ WAVEDER
 /Tutorials/0*/interfaces.out
 /Tutorials/0*/interfacer.log
 /Tutorials/*/interfacer.log
+/Tutorials/0*/gb.out
+/Tutorials/0*/trilayer.out
+/Tutorials/0*/.ipynb_checkpoints/

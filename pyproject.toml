@@ -30,6 +30,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest", "pyyaml"]
+notebooks = ["jupyter", "nbclient", "ipykernel"]
 yaml = ["pyyaml"]
 docs = ["mkdocs-material", "mkdocstrings[python]"]
 lint = ["ruff"]

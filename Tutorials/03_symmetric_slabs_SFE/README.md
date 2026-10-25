@@ -32,6 +32,8 @@ In the Na-rich limit, the NaCl-terminated surface is the more stable free surfac
 
 For non-stoichiometric slabs, the printed `Wsurf` uses the stoichiometric formula and is not a surface energy, as the NOTE says. Use the surface formation energy instead. W_ad uses only the slab and interface energies, so it is fine.
 
+`analysis.ipynb` runs the tutorial with `--sfe_scan1 Na,Cl,-1.5,0.0`. It plots the surface formation energies of the two terminations against Δμ_Na, with μ_Cl compensating. The NaCl-terminated slab (slab1_cut1) is the most stable over the whole range from −1.5 to 0 eV. The interface energies are 0.31 J/m² for NaCl-terminated | Na and 0.03 J/m² for Na2O-terminated | Na.
+
 ## Notes
 
 - **Choice of decomposition products:** Na2O + NaCl does **not** work, because Na3OCl = Na2O + NaCl exactly, so the chemical potentials are not determined. INTERFACER reports this and suggests an elemental phase. For other limits, give the chemical potentials directly, e.g. `chem_pots1 = {Na = -1.3, O = -4.9, Cl = -1.8}`.

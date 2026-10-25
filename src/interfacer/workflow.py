@@ -34,7 +34,7 @@ from .builder import align_three, make_interface, make_multilayer, make_slab, pe
 from .convergence import cfactor, check_surfaces, checkHorizontal, conv_layers, convSep, optimise_placement
 from .grainboundary import gb_energy, symmetric_tilt_gb, twist_gb
 from .io import backup_output, write_struct
-from .log import ensure_logging, say, warn
+from .log import ensure_logging, say
 
 
 def _log(msg=""):
@@ -376,17 +376,15 @@ class InterfaceWorkflow:
         table = np.array([sfe_vs_chempot(s, bulk, cp, el, partner, dmu) for s in self.opt_slabs[n]])
         csv = os.path.join(self.cfg.outdir, "sfe_vs_mu_%d.csv" % n)
         np.savetxt(csv, np.column_stack([dmu, table.T]), delimiter=",", header="dmu_%s(eV)," % el + ",".join(names), comments="")
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-        plt.figure()
+        from matplotlib.figure import Figure   # no pyplot: works without a display and does not change the backend
+        fig = Figure()
+        ax = fig.add_subplot()
         for name, row in zip(names, table):
-            plt.plot(dmu, row * cfactor, label=name)
-        plt.xlabel("Delta mu(%s) [eV] (compensated by %s)" % (el, partner))
-        plt.ylabel("Surface formation energy [J/m$^2$]")
-        plt.legend()
-        plt.savefig(os.path.join(self.cfg.outdir, "sfe_vs_mu_%d.png" % n))
-        plt.close()
+            ax.plot(dmu, row * cfactor, label=name)
+        ax.set_xlabel("Delta mu(%s) [eV] (compensated by %s)" % (el, partner))
+        ax.set_ylabel("Surface formation energy [J/m$^2$]")
+        ax.legend()
+        fig.savefig(os.path.join(self.cfg.outdir, "sfe_vs_mu_%d.png" % n))
         best = np.argmin(table, axis=0)
         _log("Most stable termination of material %d vs Delta mu(%s) (written to %s):" % (n, el, csv))
         start = 0
@@ -585,9 +583,9 @@ class InterfaceWorkflow:
         sep12 = cfg.sep
         sep23 = cfg.sep if cfg.sep2 is None else cfg.sep2
         vac = cfg.vac_int
-        if vac < 4.0:
-            warn("Three-layer interface: vacuum %.1f A < 4 A would join slab 3 and slab 1 across the periodic boundary "
-                 "(an extra 3|1 interface); using 4 A on each side" % vac)
+        if vac < 4.0:   # a smaller vacuum would join slab 3 and slab 1 across the periodic boundary (a 3|1 interface)
+            _log("Three-layer interface: vacuum of 4 A on each side (instead of -vac_int %.1f A), so that slab 3 and slab 1 "
+                 "do not form an extra interface across the periodic boundary" % vac)
             vac = 4.0
         name = "trilayer_cuts_%s" % tag
         stack = make_multilayer(opted, [sep12, sep23], vac)

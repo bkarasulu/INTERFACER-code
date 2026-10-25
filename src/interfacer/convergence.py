@@ -7,15 +7,13 @@ All functions keep their original positional arguments; the code used is given b
 import os
 from sys import stdout
 
-import matplotlib
 import numpy as np
+from matplotlib.figure import Figure
 
 from .analysis import find_prim, surf_area
 from .builder import make_interface, make_slab
 from .io import write_struct
 
-matplotlib.use("Agg")  # no display needed
-import matplotlib.pyplot as plt  # noqa: E402
 from .log import debug, say
 
 #eV / nm^2 to J / m^2: 1 eV/nm^2 = 1.602e-19 J / 1e-18 m^2 = 0.1602 J/m^2.
@@ -119,12 +117,11 @@ def _layer_loop(make, name, engine, vac, Etol, lay_min, lay_max, view, outdir):
         return layers,E,atoms,nAt
 
 def _plot_layers(layers,E,fname):
-        plt.figure()
-        plt.plot(layers,E, 'ko-')
-        plt.xlabel('Number of layers')
-        plt.ylabel('Energy per atom (eV/atom)')
-        plt.savefig(fname)
-        plt.close()
+        fig=Figure(); ax=fig.add_subplot()  #no pyplot: works without a display and does not change the backend
+        ax.plot(layers,E, 'ko-')
+        ax.set_xlabel('Number of layers')
+        ax.set_ylabel('Energy per atom (eV/atom)')
+        fig.savefig(fname)
 
 def conv_layers(atoms,vac=2.0,ifPlot=0,ifPrim=False, Etol=1e-2,view=0,lay_min=0,lay_max=5,engine=None,outdir="OUTPUT"):
         """Layer convergence test: converge the energy per atom w.r.t. the number of repetitions of the given slab along c
@@ -185,14 +182,16 @@ def convSep(slab1,slab2,vac=None,sep_init=1.5,sep_final=4.0,sep_step=0.5,view=0,
         say('\nconvSep: Minimum-energy separation is %.2f A with E= %.5f eV/atom'%(minSep,Emin));stdout.flush()
 
         if minInt: interface=minInt.copy()
+        if outdir:
+                os.makedirs(outdir,exist_ok=True)
+                np.savetxt(os.path.join(outdir,'conv_sep.csv'),np.column_stack([seps,E]),delimiter=",",header="sep(A),E_per_atom(eV)",comments="")
 
         if ifPlot: #Do plotting of E/atom vs. separation
-                plt.figure()
-                plt.plot(seps,E, 'ko-')
-                plt.xlabel('Interlayer Separation [A]')
-                plt.ylabel('Energy per atom [eV/atom]')
-                plt.savefig(os.path.join(outdir,'conv_sep.png'))
-                plt.close()
+                fig=Figure(); ax=fig.add_subplot()
+                ax.plot(seps,E, 'ko-')
+                ax.set_xlabel('Interlayer Separation [A]')
+                ax.set_ylabel('Energy per atom [eV/atom]')
+                fig.savefig(os.path.join(outdir,'conv_sep.png'))
 
         return interface,minSep
 
@@ -236,15 +235,18 @@ def checkHorizontal(slab1,slab2,sep,vac=None,steps=(0.25,0.25),ifPlot=0,engine=N
                 write_struct(interface,"htrans_x%.2f-y%.2f"%(x,y),engine,outdir)
 
         say('Minimum-energy horizontal translation: x= %.2f, y= %.2f with E= %.5f eV/atom'%(minxy[0],minxy[1],minE));stdout.flush()
+        if outdir:
+                os.makedirs(outdir,exist_ok=True)
+                X,Y=np.meshgrid(xrng,yrng,indexing='ij')
+                np.savetxt(os.path.join(outdir,'conv_htrans.csv'),np.column_stack([X.ravel(),Y.ravel(),Egrid.ravel()]),delimiter=",",header="x,y,E_per_atom(eV)",comments="")
 
         if ifPlot: #2D colour map of E/atom vs. x-y translation
-                plt.figure()
-                plt.imshow(Egrid.T,origin='lower',extent=[xrng[0],xrng[-1]+steps[0],yrng[0],yrng[-1]+steps[1]],aspect='auto')
-                plt.colorbar(label='Energy per atom [eV/atom]')
-                plt.xlabel('fractional shift along a')
-                plt.ylabel('fractional shift along b')
-                plt.savefig(os.path.join(outdir,'conv_htrans.png'))
-                plt.close()
+                fig=Figure(); ax=fig.add_subplot()
+                im=ax.imshow(Egrid.T,origin='lower',extent=[xrng[0]-steps[0]/2,xrng[-1]+steps[0]/2,yrng[0]-steps[1]/2,yrng[-1]+steps[1]/2],aspect='auto')
+                fig.colorbar(im,ax=ax,label='Energy per atom [eV/atom]')
+                ax.set_xlabel('fractional shift along a')
+                ax.set_ylabel('fractional shift along b')
+                fig.savefig(os.path.join(outdir,'conv_htrans.png'))
 
         return minInt,minE,minxy
 

@@ -124,6 +124,35 @@ Pipeline restarts become uniform for every engine (skip a step when its output a
 - **Phase 9 done:** Tutorials 01 (Cu|Ni EMT), 02 (Na3OCl|Na MACE), 03 (symmetric slabs/SFE), 04 (β-Li3PS4|Li VASP + MACE pre-screen) and 05 (Python API script and notebook), each with expected results; they are run by `tests/test_tutorials.py`.
 - **Phase 10 done:** `.github/workflows/ci.yml` (ruff, pytest on Python 3.10–3.13, tutorial 1, a MACE job, strict docs build) and the ruff configuration in `pyproject.toml`.
 
+## Follow-up work packages (`devel` branch)
+
+These work packages come from the task list after the refactor; see the changelog for details.
+
+- **WP1, project files (done):** GPL-3.0-or-later `LICENSE`, `CITATION.cff`, `CONTRIBUTING.md`, issue templates, Read the Docs configuration, `v1-legacy` branch of the original code, and the driver script renamed to `interfacer.py`.
+- **WP2, bugs and to-dos (done):**
+  - logging with `-v`/`-q`;
+  - restarts for all engines;
+  - spglib symmetry helpers and the internal symmetric-slab generator;
+  - the scan order (lateral registry first), with a fixed cell after the scans;
+  - slab orientation (`orient_up`, `calc_R1`);
+  - right-handed VASP cells;
+  - clash checks;
+  - removal of dead code.
+- **WP3, test systems (done):** Li2S, Li, Na, β-Li3PS4 and Na3OCl, with MACE system tests.
+- **WP4, features (done):**
+  - interface energy and SFE against the chemical potential;
+  - `-topt` and `--minkowski`;
+  - GPAW and ONETEP engines and `--fix_mode`;
+  - three-layer interfaces;
+  - grain boundaries.
+- **WP5, tutorials (done):** analysis notebooks for Tutorials 1, 2, 3 and 6, with the EMT notebooks run in the CI.
+- **WP6, documentation (done):** docs for all new features, README licence and citation, and the JOSS paper (`paper/`) with its draft-PDF workflow.
+- **Not planned:** a slab-energy correction for the misfit strain.
+- **Possible next steps:**
+  - a scan of the rigid-body translation of grain-boundary grains;
+  - general CSL tilt axes;
+  - more than three layers in the CLI.
+
 ## Roadmap (phases, each one or more commits on `claude/exciting-hamilton-eunp54`)
 1. **Housekeeping.** Merge `symINTERFACER`. Remove `__pycache__` and the heavy VASP files (POTCAR, WAVECAR, CHG*, DOSCAR, EIGENVAL, vasprun.xml, PCDAT) from tracking, and add them to `.gitignore`. Finish the bug audit and record it in `docs/known_issues.md`.
 2. **Characterisation tests first.** Using the ASE/LJ and EMT engines, write tests that capture current behaviour of the pure geometry and analysis functions (`make_slab`, `slab_aligner`, `misfit`, `surf_area`, `get_fu`, `calculate_SFE`, `find_commensurate_supercell`) on small bulks (Cu fcc, Na bcc, NaCl, and the Na3OCl and Li3PS4 CIFs from Tutorials). These tests guard the refactor.

@@ -38,6 +38,13 @@ jobs:
           pip install -e ".[test]"
       - name: Tests
         run: python -m pytest -q
+      - name: Tutorial notebooks (EMT)
+        if: matrix.python-version == '3.12'
+        env:
+          INTERFACER_SLOW_TESTS: "1"
+        run: |
+          pip install -e ".[notebooks]"
+          python -m pytest -q tests/test_notebooks.py
       - name: Tutorial 1 (command line)
         run: |
           cp -r Tutorials/01_Cu-Ni_EMT /tmp/tut01

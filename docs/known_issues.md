@@ -61,5 +61,8 @@ Regression tests for the fixes are in `tests/`; run them with `python -m pytest`
 - `-flip2` does not work reliably (the cell angles are not preserved).
 - With the ASE potentials, bulk structures are relaxed at fixed cell unless `--relax_cell_bulk` is given.
 - The layer convergence test (`-tlay`) converges the energy per atom, which converges slowly with thickness; a surface-energy criterion would be better.
-- The CASTEP path and VASP pseudo-hydrogen passivation (`-pass`) could not be tested here (no CASTEP/VASP binaries); the VASP input generation is tested with `-dry`.
-- No restart support for the convergence tests (`-tsep`, `-thor`, `-tlay`) with ASE.
+- CASTEP, GPAW and ONETEP runs could not be tested here, because no binaries were available. Their calculator settings are tested, and the VASP input generation is tested with `-dry`.
+- VASP pseudo-hydrogen passivation (`-pass`) needs slabs of about six or more atomic layers. In thinner slabs the most common neighbour environment of an element is ambiguous, so too few hydrogens may be added ([DFT codes](dft_codes.md)).
+- Symmetric tilt grain boundaries are built without a scan of the rigid-body translation of the grains. Some boundaries have lower-energy structures at other translations, so the γ_GB obtained is an upper bound. Twist boundaries are limited to square and hexagonal planes.
+- No slab-energy correction for the misfit strain is applied: $W_\mathrm{ad}$ includes the elastic energy of straining the slabs into the common cell ([Theory](theory.md#work-of-adhesion)).
+- With `-vac_int` ≤ 4 Å the interface cell is counted as having two interfaces. A vacuum of exactly 4 Å on each side (an 8 Å gap) is still counted that way, although it is closer to two free surfaces; use either ≤ 2 Å or ≥ 6 Å.
