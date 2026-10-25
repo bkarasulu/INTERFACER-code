@@ -1,4 +1,5 @@
 # INTERFACER
+<img width="1254" height="845" alt="INTERFACER-logo-v2" src="https://github.com/user-attachments/assets/a6fe7fb8-ef19-4a77-80ff-38a0bd5e951d" />
 
 INTERFACER builds solid–solid interfaces from two bulk crystal structures and computes their surface and interface energetics. It works with VASP, CASTEP, GPAW and ONETEP, with machine-learning interatomic potentials such as MACE, and with any ASE calculator. It also builds grain boundaries and three-layer interfaces.
 
