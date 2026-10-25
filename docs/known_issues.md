@@ -1,7 +1,7 @@
 # Fixed bugs and known issues
 
 This file lists the bugs that were fixed during phase 1 of the refactor (see `ROADMAP.md`), and the issues that are still open.
-Regression tests for the fixes are in `tests/`; run them with `python -m pytest`. File locations below refer to the pre-1.0 layout (`interfacer-new.py`, `tools/`); see `package_layout.md` for where the code is now.
+Regression tests for the fixes are in `tests/`; run them with `python -m pytest`. File locations below refer to the pre-1.0 layout (`interfacer-new.py`, now `interfacer.py`, and `tools/`); see `package_layout.md` for where the code is now.
 
 ## Fixed
 

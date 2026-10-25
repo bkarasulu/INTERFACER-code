@@ -15,7 +15,7 @@ Use it from Python::
     results = wf.run(ase.io.read("Cu.cif"), ase.io.read("Ni.cif"))
     print(results.interfaces[0].W_ad)
 
-The command line (interfacer / interfacer-new.py) builds a WorkflowConfig from its options and runs the same steps.
+The command line (interfacer / interfacer.py) builds a WorkflowConfig from its options and runs the same steps.
 """
 import ast
 import json

@@ -1,4 +1,4 @@
-"""Command-line interface of INTERFACER (``interfacer`` command, also used by ``interfacer-new.py``).
+"""Command-line interface of INTERFACER (``interfacer`` command, also used by ``interfacer.py``).
 
 The workflow: optimise the two bulk structures -> (optional) surface stability and layer convergence tests ->
 create slabs -> pre-optimise them and compute surface formation energies -> for each pair of slabs: find a

@@ -87,7 +87,7 @@ src/interfacer/
     mlip.py            # registry: mace, chgnet, matgl/m3gnet, sevennet, orb, fairchem, nequip/allegro, "custom:module:factory"; lazy imports with clear install hints; device/dtype/model args
     optimise.py        # shared ASE relax: BFGS/FIRE + FrechetCellFilter (bulk), FixAtoms (frozen bottom layers), trajectory output
 tools/  -> thin compat shims re-exporting from interfacer.*
-interfacer-new.py -> wrapper around interfacer.cli:main
+interfacer.py (formerly interfacer-new.py) -> wrapper around interfacer.cli:main
 tests/  docs/  tutorials/  .github/workflows/ci.yml
 ```
 New CLI options (old options unchanged): `-prog mlip` (`ase` keeps its current meaning), `--mlip {mace,chgnet,...}`, `--mlip_model <name|path>`, `--device`, `--ase_opt {BFGS,FIRE,LBFGS}`, `--relax_cell_bulk`, `--fix_layers N`, `--input file.toml`, `--outdir`, `--overwrite`.
@@ -101,7 +101,7 @@ Pipeline restarts become uniform for every engine (skip a step when its output a
 - **Phase 2 started:** regression and end-to-end tests in `tests/`.
 - **Phase 3 done:**
   - Installable `interfacer` package in `src/` (`pyproject.toml`) with the `interfacer` command.
-  - `interfacer-new.py` and `tools/` are compatibility wrappers. See `package_layout.md`.
+  - `interfacer.py` (formerly `interfacer-new.py`) and `tools/` are compatibility wrappers. See `package_layout.md`.
 - **Phase 4 done:**
   - `interfacer.calculators`: `Engine` interface, `VaspEngine`/`CastepEngine` (the original drivers, unchanged behaviour) and `AseEngine` (any ASE calculator).
   - Shared ASE optimiser with cell relaxation, frozen bottom layers and a choice of optimiser.
@@ -138,7 +138,7 @@ Pipeline restarts become uniform for every engine (skip a step when its output a
 
 ## Verification
 - `pip install -e .[test]`, then `pytest -q`. Characterisation tests must pass before and after each move. Bug-fix tests fail on old code and pass on new code.
-- `interfacer -i1 Cu.cif -i2 Ni.cif -m1 1 0 0 -m2 1 0 0 -prog ase -quick` and `python interfacer-new.py <the same old flags from Tutorials/*/run_script> -dry` both run end to end and produce `OUTPUT/` files.
+- `interfacer -i1 Cu.cif -i2 Ni.cif -m1 1 0 0 -m2 1 0 0 -prog ase -quick` and `python interfacer.py <the same old flags from Tutorials/*/run_script> -dry` both run end to end and produce `OUTPUT/` files.
 - With mace-torch installed: `interfacer ... -prog mlip --mlip mace --mlip_model small` on Na3OCl|Na gives finite Wsurf/Wad values and a relaxed interface.
 - `mkdocs build --strict` passes. Tutorial (a) runs in CI.
 - VASP and CASTEP paths can't run here. They are checked with `-dry` and with mocked calculator tests that confirm the INCAR and parameter settings match the old code.

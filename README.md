@@ -40,7 +40,7 @@ interfacer -i1 Cu.cif -i2 Ni.cif -m1 1 1 1 -m2 1 1 1 -prog mlip --mlip mace --ml
 interfacer -i1 Cu.cif -i2 Ni.cif -m1 1 1 1 -m2 1 1 1 -prog vasp -kp_gr "4 4 1" -tsep -thor -mpi -np 64
 ```
 
-`python interfacer-new.py ...` accepts the same options as `interfacer`. Run `interfacer -h` for all options.
+`python interfacer.py ...` accepts the same options as `interfacer`. Run `interfacer -h` for all options.
 
 Options can also go in an input file: `interfacer --input run.toml` (TOML, YAML or JSON). Command-line options override the file, and `--save_input` writes the options of a run to a file.
 

@@ -244,7 +244,7 @@ def get_interface_energy(slab1,slab2,Ebulk1,Ebulk2,dist=1.0,convLayers=False,vac
             Eslab1, Eslab2 (eV), Ws1, Ws2 (eV/nm^2), interface (ase.Atoms with W_ad in interface.info['W_ad'], eV/nm^2)
         """
         if convLayers:
-                raise NotImplementedError("get_interface_energy: layer convergence is done by conv_layers() in interfacer-new.py")
+                raise NotImplementedError("get_interface_energy: layer convergence is done by conv_layers() in interfacer.py")
         if calc is None: calc = slab1.calc if slab1.calc is not None else slab2.calc
         if calc is None: raise ValueError("get_interface_energy: no calculator given or attached to the slabs.")
 

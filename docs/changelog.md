@@ -3,7 +3,7 @@
 ## 1.0.0.dev0 (refactor)
 
 **Package**
-- Installable `interfacer` package with an `interfacer` command. `interfacer-new.py` and `tools/` remain as compatibility wrappers.
+- Installable `interfacer` package with an `interfacer` command. The script `interfacer.py` (renamed from `interfacer-new.py`; same options) and `tools/` remain as compatibility wrappers.
 - The workflow is split into steps (`interfacer.workflow`), and results are written to `OUTPUT/results.json`.
 - Common engine interface for VASP, CASTEP and ASE calculators, with a shared ASE optimiser: cell relaxation, fixed bottom layers, BFGS/FIRE/LBFGS.
 
