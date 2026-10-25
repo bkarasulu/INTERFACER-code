@@ -141,3 +141,22 @@ def test_prepare_cell_for_vasp():
     assert out.get_scaled_positions(wrap=False)[:, 2].min() >= -1e-8
     d0 = s.get_all_distances(mic=True); d1 = out.get_all_distances(mic=True)
     assert np.allclose(np.sort(d0.ravel()), np.sort(d1.ravel()), atol=1e-6)
+
+
+def test_sfe_vs_chempot_slope():
+    import numpy as np
+    from ase.calculators.singlepoint import SinglePointCalculator
+    from interfacer.analysis import interface_energy, sfe_vs_chempot
+    nacl = bulk("NaCl", "rocksalt", a=5.64, cubic=True)
+    nacl.calc = SinglePointCalculator(nacl, energy=-8.0)
+    slab = nacl.repeat((1, 1, 2))
+    del slab[[i for i, s in enumerate(slab.get_chemical_symbols()) if s == "Cl"][:1]]  # Na8Cl7: one extra Na
+    slab.center(vacuum=5.0, axis=2)
+    slab.calc = SinglePointCalculator(slab, energy=-14.0)
+    A = surf_area(slab) / 100
+    d = np.array([-1.0, 0.0, 1.0])
+    sfe = sfe_vs_chempot(slab, nacl, {"Na": -1.0, "Cl": -1.0}, "Na", "Cl", d)
+    # one extra Na atom: SFE decreases with mu(Na) with slope -1/(2A)
+    assert np.allclose(np.diff(sfe), -1.0 / (2 * A))
+    assert sfe[1] == pytest.approx(1.0 / (2 * A))
+    assert interface_energy(1.0, 1.7, 2.6) == pytest.approx(0.1)

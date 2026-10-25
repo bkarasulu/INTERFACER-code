@@ -88,6 +88,8 @@ def build_parser():
     parser.add_argument("-cp2", "--chem_pots2", default=None, type=str, help="Chemical potentials for the slab2, e.g. \"{'Fe':-3.0, 'O':-2.0}\" (in eV). Def: No")
     parser.add_argument("-decomps1", "--decomps1", default=None, type=str, nargs="+", help="list of decomposition structure files of slab1. Def: No")
     parser.add_argument("-decomps2", "--decomps2", default=None, type=str, nargs="+", help="list of decomposition structure files of slab2. Def: No")
+    parser.add_argument("--sfe_scan1", default=None, type=str, help="SFE of all slabs of material 1 vs the chemical potential of one element, e.g. 'Na,Cl,-1.0,0.0': Delta mu(Na) from -1 to 0 eV relative to the reference chemical potentials (-cp1/-decomps1), compensated by Cl to keep the bulk in equilibrium. Writes OUTPUT/sfe_vs_mu_1.csv/.png. Def: none")
+    parser.add_argument("--sfe_scan2", default=None, type=str, help="As --sfe_scan1 for material 2. Def: none")
     parser.add_argument("-surf_only","--surf_only", default=False, action="store_true", help="Use to only calculate the surfaces and exit before the creation of the interfaces. Def: no")
 
     #Convergence tests related keywords

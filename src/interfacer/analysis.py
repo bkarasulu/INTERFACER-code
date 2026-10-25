@@ -170,6 +170,34 @@ def find_prim(atoms,tol=1e-4):#using SPGlib find primitive cell of a given atoms
         return atoms2
 
 
+def interface_energy(gamma1, gamma2, W_ad):
+        """Interface (formation) energy from the Dupre relation: gamma_int = gamma_1 + gamma_2 - W_ad (same units)."""
+        return gamma1 + gamma2 - W_ad
+
+def sfe_vs_chempot(slab, bulk, chem_pots, element, partner, dmu):
+        """Surface formation energy (eV/nm^2) of a slab as a function of the chemical potential of one element.
+
+        mu_element = chem_pots[element] + dmu; to keep the bulk in equilibrium (sum_i n_i mu_i = E_bulk), the chemical
+        potential of `partner` changes by -dmu * n_element / n_partner (n: numbers of atoms in the bulk).
+        Args:
+            slab, bulk (ase.Atoms): with energies.
+            chem_pots (dict): reference chemical potentials of all elements of the bulk (eV).
+            element, partner (str): the varied element and the compensating one.
+            dmu (array): changes of mu_element (eV).
+        Returns:
+            numpy array of SFEs (eV/nm^2), one per value of dmu.
+        """
+        sym=bulk.get_chemical_symbols()
+        if element not in chem_pots or partner not in chem_pots:
+                raise ValueError("sfe_vs_chempot: %s and %s need reference chemical potentials (have %s)"%(element,partner,sorted(chem_pots)))
+        if element==partner: raise ValueError("sfe_vs_chempot: element and partner must differ")
+        ratio=sym.count(element)/float(sym.count(partner))
+        out=[]
+        for d in np.atleast_1d(dmu):
+                cp=dict(chem_pots); cp[element]+=d; cp[partner]-=d*ratio
+                out.append(calculate_SFE(slab,bulk,chem_pots=cp))
+        return np.array(out)
+
 def find_clashes(atoms, factor=0.6):
         """Pairs of atoms closer than factor*(r_cov,i + r_cov,j) (periodic images included).
         Returns a list of (i, j, distance, threshold) with i < j, sorted by distance."""

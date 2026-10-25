@@ -73,3 +73,26 @@ def test_interface_cell_fixed_after_separation_scan(tmp_path, emt_engine):
     pre = ase.io.read(tmp_path / "b" / "OUT" / "interface-pre_opt_cuts_0_0.xyz")
     post = ase.io.read(tmp_path / "b" / "OUT" / "interface_cuts_0_0_opted.xyz")
     assert abs(post.cell.lengths()[2] - pre.cell.lengths()[2]) > 1e-3
+
+
+def test_sfe_scan_polar_terminations(tmp_path):
+    # NaCl(111): Na- and Cl-terminated symmetric slabs; their SFEs vs mu(Na) cross
+    import numpy as np
+    from interfacer.calculators import CalcSettings, get_engine
+    eng = get_engine("ase", CalcSettings(ase_pot="LJ", steps=2, outdir=str(tmp_path / "OUT")))
+    cfg = _cfg(tmp_path, sym_slabs1=True, thickness=6.0, sym_method="internal", no_slabs=2, surf_only=True,
+               chem_pots1={"Na": -1.0, "Cl": -1.0}, sfe_scan1=("Na", "Cl", -3.0, 3.0))
+    wf = InterfaceWorkflow(eng, cfg)
+    wf.run(bulk("NaCl", "rocksalt", a=5.64, cubic=True), bulk("Ni", "fcc", a=3.52, cubic=True))
+    data = np.loadtxt(tmp_path / "OUT" / "sfe_vs_mu_1.csv", delimiter=",", skiprows=1)
+    assert data.shape[1] == 3 and (tmp_path / "OUT" / "sfe_vs_mu_1.png").exists()
+    diff = data[:, 1] - data[:, 2]
+    assert diff[0] * diff[-1] < 0          # the stable termination changes within the range
+
+
+def test_interface_energy_reported(tmp_path, emt_engine):
+    res = InterfaceWorkflow(emt_engine, _cfg(tmp_path)).run(bulk("Cu", "fcc", a=3.61, cubic=True), bulk("Ni", "fcc", a=3.52, cubic=True))
+    r = res.interfaces[0]
+    assert r.gamma_int == pytest.approx(r.W_surf1 + r.W_surf2 - r.W_ad)
+    assert 0 < r.gamma_int_J < 0.3        # coherent Cu|Ni: small interface energy
+    assert "gamma_int" in (tmp_path / "interfaces.out").read_text()
