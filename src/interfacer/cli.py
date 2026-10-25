@@ -81,6 +81,7 @@ def build_parser():
     parser.add_argument("-niggli", "--niggli", default=False, action='store_true', help='Niggli reduce the resulting interface. Def: no')
     parser.add_argument("-flip2", "--flip2", default=False, action="store_true", help="Flip the slab2 upside-down.")
     parser.add_argument("-sym_slabs1", "--symSlabs1", default=False, action="store_true", help="Create symmetric surface slabs for infile1. Def: no")
+    parser.add_argument("--sym_method", default="pymatgen", choices=["pymatgen","internal"], help="Generator of the symmetric slabs (-sym_slabs1/2): pymatgen's SlabGenerator or INTERFACER's own implementation. Def: pymatgen")
     parser.add_argument("-sym_slabs2", "--symSlabs2", default=False, action="store_true", help="Create symmetric surface slabs for infile2. Def: no")
     parser.add_argument("-no_slabs", "--noSlabs",default=1, type=int, help="Number of slabs to be used for interface creation, starting from the most stable slab. Def: 1")
     parser.add_argument("-cp1", "--chem_pots1", default=None, type=str, help="Chemical potentials for the slab1, e.g. \"{'Fe':-3.0, 'O':-2.0}\" (in eV). Def: No")

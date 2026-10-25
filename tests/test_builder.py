@@ -107,3 +107,41 @@ def test_find_commensurate_supercell_raises_instead_of_exiting(cu_bulk):
     s2 = make_slab((1, 0, 0), bulk("Na", "bcc", a=4.29, cubic=True))
     with pytest.raises(RuntimeError):
         find_commensurate_supercell(s1, s2, 3, 4, 1, 0.01)
+
+
+@pytest.mark.parametrize("name,miller,n", [("na3ocl", (1, 0, 0), 2), ("na3ocl", (1, 1, 1), 2), ("Cu", (1, 1, 1), 1),
+                                           ("NaCl", (1, 0, 0), 1), ("NaCl", (1, 1, 1), 2)])
+def test_internal_symmetric_slabs_match_pymatgen(name, miller, n):
+    import os
+    import ase.io
+    from interfacer.builder import is_symmetric_slab, symmetric_slabs
+    from interfacer.analysis import is_stoichiometric
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    b = {"na3ocl": lambda: ase.io.read(os.path.join(root, "Tutorials/Antiperovskites/Coll_Na/na3ocl.cif")),
+         "Cu": lambda: bulk("Cu", "fcc", a=3.61, cubic=True), "NaCl": lambda: bulk("NaCl", "rocksalt", a=5.64, cubic=True)}[name]()
+    internal = symmetric_slabs(b, miller, 8.0, vacuum=6.0)
+    pmg = permute_surface(b, miller, 8.0, vacuum=6.0, method="pymatgen")
+    assert len(internal) == len(pmg) == n
+    for s in internal:
+        assert is_symmetric_slab(s) and slab_thickness(s) >= 8.0
+        assert abs(s.cell[0][2]) < 1e-8 and abs(s.cell[1][2]) < 1e-8
+    # same set of terminations: the excess composition relative to the bulk has the same direction
+    def excess_signature(slabs):
+        els = sorted(set(b.get_chemical_symbols()))
+        nb = [b.get_chemical_symbols().count(e) for e in els]
+        out = []
+        for s in slabs:
+            ns = [s.get_chemical_symbols().count(e) for e in els]
+            k = min(ns[i] / nb[i] for i in range(len(els)))
+            ex = [round(ns[i] - k * nb[i], 6) for i in range(len(els))]
+            m = max(ex) or 1
+            out.append(tuple(round(x / m, 3) for x in ex))
+        return sorted(out)
+    assert excess_signature(internal) == excess_signature(pmg)
+    if n == 1 and name != "NaCl":
+        assert is_stoichiometric(internal[0], b)
+
+
+def test_permute_surface_rejects_unknown_method(cu_bulk):
+    with pytest.raises(ValueError):
+        permute_surface(cu_bulk, (1, 1, 1), 5.0, vacuum=5.0, method="julian")

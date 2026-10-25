@@ -73,3 +73,23 @@ def test_call_vasp_invalid_typ(tmp_path, monkeypatch):
     with pytest.raises(ValueError):
         call_vasp(bulk("Cu"), typ="md", name="x", KPspacing=0.3, exe="vasp_std", dry=True)
     assert os.getcwd() == str(tmp_path)
+
+
+def test_call_vasp_passivation_dry(tmp_path, monkeypatch, fake_potcars):
+    # pseudo-hydrogen passivation of the bottom surface (input generation only)
+    (fake_potcars / "potpaw" / "Cu").mkdir(parents=True)
+    (fake_potcars / "potpaw" / "Cu" / "POTCAR").write_text((fake_potcars / "potpaw_PBE" / "Cu" / "POTCAR").read_text())
+    monkeypatch.chdir(tmp_path)
+    # >= 6 layers: the bulk coordination is taken as the most common one, so in very thin slabs (as many surface as
+    # inner atoms) no atom counts as undercoordinated
+    slab = fcc111("Cu", size=(2, 2, 6), vacuum=6.0)
+    n_bottom = 4
+    E, out = call_vasp(slab, typ="geom", name="pas", ENCUT=400, KPgrid="2 2 1", FixCell=True, passivate="bot",
+                       exe="vasp_std", dry=True)
+    assert out.get_chemical_symbols().count("H") == n_bottom
+    zH = out.positions[[a.index for a in out if a.symbol == "H"], 2]
+    zCu = out.positions[[a.index for a in out if a.symbol == "Cu"], 2]
+    assert zH.max() < zCu.min()          # below the bottom layer
+    with pytest.raises(ValueError):
+        call_vasp(fcc111("Cu", size=(1, 1, 3), vacuum=6.0), typ="geom", name="pas2", KPspacing=0.3, passivate="side",
+                  exe="vasp_std", dry=True)

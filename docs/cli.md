@@ -37,6 +37,7 @@ Every option except `--input`, `--save_input`, `--help` and `--version` can also
 | `-niggli`, `--niggli` |  | Niggli reduce the resulting interface. Def: no |
 | `-flip2`, `--flip2` |  | Flip the slab2 upside-down. |
 | `-sym_slabs1`, `--symSlabs1` |  | Create symmetric surface slabs for infile1. Def: no |
+| `--sym_method` {pymatgen,internal} | `pymatgen` | Generator of the symmetric slabs (-sym_slabs1/2): pymatgen's SlabGenerator or INTERFACER's own implementation. Def: pymatgen |
 | `-sym_slabs2`, `--symSlabs2` |  | Create symmetric surface slabs for infile2. Def: no |
 | `-no_slabs`, `--noSlabs` | `1` | Number of slabs to be used for interface creation, starting from the most stable slab. Def: 1 |
 | `-cp1`, `--chem_pots1` |  | Chemical potentials for the slab1, e.g. "{'Fe':-3.0, 'O':-2.0}" (in eV). Def: No |

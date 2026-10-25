@@ -52,6 +52,7 @@ class WorkflowConfig:
     sym_slabs1: bool = False              # symmetric slabs for material 1 (-sym_slabs1)
     sym_slabs2: bool = False              # (-sym_slabs2)
     thickness: float = 7.0                # min. thickness of symmetric slabs, A (-th)
+    sym_method: str = "pymatgen"          # generator of symmetric slabs: pymatgen or internal (--sym_method)
     no_slabs: int = 1                     # number of most stable slabs used per material (-no_slabs)
     prim: bool = False                    # use primitive bulk cells (-prim)
     chem_pots1: Optional[dict] = None     # chemical potentials for the SFE of slab 1, eV (-cp1)
@@ -237,7 +238,7 @@ class InterfaceWorkflow:
             _log('Surface %d is read from %s' % (n, surface))
         elif sym:
             _log('\nBulk%d is being symmetrized' % n)
-            slabs = permute_surface(bulk.copy(), miller, cfg.thickness, vacuum=cfg.vac_slab)
+            slabs = permute_surface(bulk.copy(), miller, cfg.thickness, vacuum=cfg.vac_slab, method=cfg.sym_method)
             if not slabs:
                 slabs.append(make_slab(miller, bulk, repeat=(1, 1, creps), square=0))
         else:
@@ -474,7 +475,7 @@ def config_from_args(args):
     return WorkflowConfig(
         miller1=tuple(args.miller1), miller2=tuple(args.miller2), creps1=args.creps1 or 1, creps2=args.creps2 or 1,
         surface1=args.surface1 or None, surface2=args.surface2 or None, sym_slabs1=args.symSlabs1, sym_slabs2=args.symSlabs2,
-        thickness=args.thickness, no_slabs=args.noSlabs, prim=args.prim, chem_pots1=literal(args.chem_pots1),
+        thickness=args.thickness, sym_method=args.sym_method, no_slabs=args.noSlabs, prim=args.prim, chem_pots1=literal(args.chem_pots1),
         chem_pots2=literal(args.chem_pots2), decomps1=args.decomps1, decomps2=args.decomps2, passivate=args.pas,
         fix_layers=args.fix_layers, max_slab_dimension=args.max_slab_dimension, init_length=args.initLength,
         step_length=args.stepLength, percentage_tolerance=args.percentage_tolerance, flip2=args.flip2, vac_slab=args.vac_slab,
